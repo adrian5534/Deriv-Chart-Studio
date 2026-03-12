@@ -42,14 +42,11 @@ export const TIMEFRAMES = [
   { label: "10m", value: 600 },
   { label: "15m", value: 900 },
   { label: "30m", value: 1800 },
-  { label: "45m", value: 2700 },
   { label: "1h", value: 3600 },
   { label: "2h", value: 7200 },
   { label: "4h", value: 14400 },
   { label: "8h", value: 28800 },
-  { label: "12h", value: 43200 },
   { label: "1d", value: 86400 },
-  { label: "1w", value: 604800 },
 ] as const;
 
 export const ASSET_MAP = Object.fromEntries(
