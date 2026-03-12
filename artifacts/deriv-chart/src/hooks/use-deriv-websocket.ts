@@ -1,10 +1,10 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { DERIV_WS_URL } from '../lib/deriv-constants';
 import { useChartStore } from '../store/use-chart-store';
-import { Time } from 'lightweight-charts';
+import { UTCTimestamp } from 'lightweight-charts';
 
 export interface CandleData {
-  time: Time;
+  time: UTCTimestamp;  // always a plain number — never a string or BusinessDay object
   open: number;
   high: number;
   low: number;
@@ -78,11 +78,11 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
         if (data.msg_type === 'candles') {
           // Historical candle batch
           const candles: CandleData[] = (data.candles || []).map((c: any) => ({
-            time: c.epoch as Time,
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
+            time: Number(c.epoch) as UTCTimestamp,
+            open: parseFloat(c.open),
+            high: parseFloat(c.high),
+            low: parseFloat(c.low),
+            close: parseFloat(c.close),
           }));
           if (data.subscription?.id) {
             subscriptionIdRef.current = data.subscription.id;
@@ -93,7 +93,7 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
           // Live candle tick — update the latest candle
           const c = data.ohlc;
           const liveCandle: CandleData = {
-            time: c.open_time as Time,
+            time: Number(c.open_time) as UTCTimestamp,
             open: parseFloat(c.open),
             high: parseFloat(c.high),
             low: parseFloat(c.low),
@@ -161,11 +161,11 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
           if (data.msg_type === 'candles' && data.req_id === reqId) {
             wsRef.current?.removeEventListener('message', handler);
             const candles: CandleData[] = (data.candles || []).map((c: any) => ({
-              time: c.epoch as Time,
-              open: c.open,
-              high: c.high,
-              low: c.low,
-              close: c.close,
+              time: Number(c.epoch) as UTCTimestamp,
+              open: parseFloat(c.open),
+              high: parseFloat(c.high),
+              low: parseFloat(c.low),
+              close: parseFloat(c.close),
             }));
             resolve(candles);
           }

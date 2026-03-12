@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import { createChart, IChartApi, ISeriesApi } from 'lightweight-charts';
 import { useChartStore } from '../../store/use-chart-store';
 import { useDerivWebSocket, CandleData } from '../../hooks/use-deriv-websocket';
@@ -14,15 +14,18 @@ const LightweightChart = forwardRef<ChartRef, {}>((_, ref) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const allCandlesRef = useRef<CandleData[]>([]);
   const replayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [isReady, setIsReady] = useState(false);
 
-  const replay = useChartStore(s => s.replay);
+  // Extract each replay field individually so useEffect deps are plain values
+  const replayActive  = useChartStore(s => s.replay.active);
+  const replayPlaying = useChartStore(s => s.replay.playing);
+  const replaySpeed   = useChartStore(s => s.replay.speed);
+  const replayCandles = useChartStore(s => s.replay.candles);
   const setReplayState = useChartStore(s => s.setReplayState);
 
-  // Initialize Chart once
+  // ─── Initialize chart once ────────────────────────────────────────────────
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -73,68 +76,79 @@ const LightweightChart = forwardRef<ChartRef, {}>((_, ref) => {
     };
   }, []);
 
-  // WebSocket data integration
+  // ─── Live WebSocket data ──────────────────────────────────────────────────
   const { loadReplayCandles } = useDerivWebSocket({
     onHistoricalData: (data) => {
       if (!seriesRef.current) return;
-      if (replay.active) return; // Don't overwrite replay data with live data
+      // Never overwrite chart while replay is active
+      if (useChartStore.getState().replay.active) return;
+
       const sorted = [...data]
         .sort((a, b) => (a.time as number) - (b.time as number))
         .filter((v, i, arr) => i === 0 || v.time !== arr[i - 1].time);
-      allCandlesRef.current = sorted;
-      seriesRef.current.setData(sorted);
+
+      try { seriesRef.current.setData(sorted); } catch { /* ignore */ }
     },
+
     onLiveUpdate: (data) => {
-      if (!seriesRef.current || replay.active) return;
-      seriesRef.current.update(data);
-      // Keep allCandlesRef updated with live data
-      const last = allCandlesRef.current[allCandlesRef.current.length - 1];
-      if (last && last.time === data.time) {
-        allCandlesRef.current[allCandlesRef.current.length - 1] = data;
-      } else {
-        allCandlesRef.current.push(data);
+      if (!seriesRef.current) return;
+      if (useChartStore.getState().replay.active) return;
+      try {
+        seriesRef.current.update(data);
+      } catch {
+        // Tick arrived for an out-of-order candle — safe to skip
       }
     },
   });
 
-  // Replay engine: advance index and update chart when playing
+  // ─── Replay engine ────────────────────────────────────────────────────────
+  // Driven solely by setData(growing slice) — no update() calls —
+  // to avoid any race between setData and update ordering requirements.
   useEffect(() => {
     if (replayTimerRef.current) {
       clearInterval(replayTimerRef.current);
       replayTimerRef.current = null;
     }
 
-    if (!replay.active || !replay.playing || !seriesRef.current) return;
-    const candles = replay.candles;
-    if (!candles.length) return;
+    if (!replayActive || !replayCandles.length || !seriesRef.current) return;
+
+    // Show initial slice immediately
+    const idx = useChartStore.getState().replay.index;
+    try {
+      seriesRef.current.setData(replayCandles.slice(0, Math.max(1, idx + 1)));
+    } catch { /* ignore */ }
+
+    if (!replayPlaying) return;
 
     replayTimerRef.current = setInterval(() => {
-      const nextIndex = useChartStore.getState().replay.index + 1;
-      if (nextIndex >= candles.length) {
-        // Reached end of replay data
+      const { replay } = useChartStore.getState();
+      if (!seriesRef.current || !replay.active) return;
+
+      const nextIndex = replay.index + 1;
+      if (nextIndex >= replay.candles.length) {
         clearInterval(replayTimerRef.current!);
+        replayTimerRef.current = null;
         setReplayState({ playing: false });
         return;
       }
+
+      try {
+        seriesRef.current.setData(replay.candles.slice(0, nextIndex + 1));
+      } catch { /* ignore */ }
+
       setReplayState({ index: nextIndex });
-      seriesRef.current?.update(candles[nextIndex]);
-    }, replay.speed);
+    }, replaySpeed);
 
     return () => {
-      if (replayTimerRef.current) clearInterval(replayTimerRef.current);
+      if (replayTimerRef.current) {
+        clearInterval(replayTimerRef.current);
+        replayTimerRef.current = null;
+      }
     };
-  }, [replay.active, replay.playing, replay.speed, replay.candles, setReplayState]);
+  // NOTE: these are plain extracted values, NOT hook calls
+  }, [replayActive, replayPlaying, replaySpeed, replayCandles, setReplayState]);
 
-  // When replay is activated: load candles and show initial slice
-  useEffect(() => {
-    if (!replay.active || !replay.date || !seriesRef.current) return;
-    if (replay.candles.length > 0) {
-      // Candles already loaded, just show them up to current index
-      const slice = replay.candles.slice(0, Math.max(1, replay.index));
-      seriesRef.current.setData(slice);
-    }
-  }, [replay.active, replay.candles, replay.index, replay.date]);
-
+  // ─── Expose API via ref ───────────────────────────────────────────────────
   useImperativeHandle(ref, () => ({
     getChart: () => chartRef.current,
     getSeries: () => seriesRef.current,

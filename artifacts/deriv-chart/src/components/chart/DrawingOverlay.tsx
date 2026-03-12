@@ -53,7 +53,8 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     if (!ctx) return;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const priceScaleWidth = chart.priceScale('right').width();
+    let priceScaleWidth = 0;
+    try { priceScaleWidth = chart.priceScale('right').width(); } catch { /* chart disposed */ }
     const drawWidth = canvas.width - priceScaleWidth;
 
     const drawings = drawingsRef.current;
