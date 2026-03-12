@@ -1,0 +1,15 @@
+packages:
+  "lightweight-charts": "^4.2.0"
+  "zustand": "^4.5.2"
+  "date-fns": "^3.6.0"
+  "clsx": "catalog:"
+  "tailwind-merge": "catalog:"
+  "lucide-react": "catalog:"
+
+images: []
+
+notes:
+  - Connects to Deriv WS at wss://ws.derivws.com/websockets/v3?app_id=1089
+  - Uses standard Deriv synthetic indices
+  - Lightweight charts is used for high-performance canvas rendering of candlesticks
+  - Drawings are implemented via an overlay canvas synced with lightweight-charts coordinate system

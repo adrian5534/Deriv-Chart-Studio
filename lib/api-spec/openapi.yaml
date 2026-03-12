@@ -1,15 +1,16 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Deriv Trading Chart API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: alerts
+    description: Price alert operations
 paths:
   /healthz:
     get:
@@ -24,6 +25,55 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /alerts:
+    get:
+      operationId: listAlerts
+      tags: [alerts]
+      summary: List all price alerts
+      responses:
+        "200":
+          description: List of alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Alert"
+    post:
+      operationId: createAlert
+      tags: [alerts]
+      summary: Create a new price alert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAlertRequest"
+      responses:
+        "201":
+          description: Alert created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Alert"
+  /alerts/{id}:
+    delete:
+      operationId: deleteAlert
+      tags: [alerts]
+      summary: Delete a price alert
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Alert deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +83,47 @@ components:
           type: string
       required:
         - status
-
+    Alert:
+      type: object
+      properties:
+        id:
+          type: string
+        symbol:
+          type: string
+        price:
+          type: number
+        condition:
+          type: string
+          enum: [above, below]
+        active:
+          type: boolean
+        createdAt:
+          type: string
+      required:
+        - id
+        - symbol
+        - price
+        - condition
+        - active
+        - createdAt
+    CreateAlertRequest:
+      type: object
+      properties:
+        symbol:
+          type: string
+        price:
+          type: number
+        condition:
+          type: string
+          enum: [above, below]
+      required:
+        - symbol
+        - price
+        - condition
+    DeleteResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+      required:
+        - success
