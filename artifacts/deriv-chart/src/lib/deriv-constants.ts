@@ -35,13 +35,6 @@ export const ASSETS = [
 ] as const;
 
 export const TIMEFRAMES = [
-  { label: "1s", value: 1 },
-  { label: "2s", value: 2 },
-  { label: "3s", value: 3 },
-  { label: "5s", value: 5 },
-  { label: "10s", value: 10 },
-  { label: "15s", value: 15 },
-  { label: "30s", value: 30 },
   { label: "1m", value: 60 },
   { label: "2m", value: 120 },
   { label: "3m", value: 180 },
