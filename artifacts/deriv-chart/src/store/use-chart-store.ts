@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import { ASSETS, TIMEFRAMES } from '../lib/deriv-constants';
+import { ASSETS } from '../lib/deriv-constants';
+import { CandleData } from '../hooks/use-deriv-websocket';
 
-export type DrawingTool = 'cursor' | 'trendline' | 'hline' | 'fib' | 'rect' | 'text';
+export type DrawingTool = 'cursor' | 'trendline' | 'hline' | 'fib' | 'rect' | 'ray';
 
 export interface Point {
-  time: number; // UNIX timestamp
+  time: number;
   price: number;
 }
 
@@ -21,24 +22,26 @@ interface ChartState {
   timeframe: number;
   livePrice: number | null;
   connectionStatus: 'connecting' | 'connected' | 'disconnected';
-  
-  // Tools
+
+  // Drawing tools
   activeTool: DrawingTool;
   drawings: Drawing[];
-  
+
   // Indicators
   indicators: {
     ma: boolean;
     rsi: boolean;
     atr: boolean;
   };
-  
+
   // Replay
   replay: {
     active: boolean;
-    date: Date | null;
+    date: string | null; // ISO date string
     playing: boolean;
-    speed: number;
+    speed: number; // ms between candles
+    candles: CandleData[];
+    index: number; // how many candles currently shown
   };
 
   // Actions
@@ -53,48 +56,55 @@ interface ChartState {
   clearDrawings: () => void;
   toggleIndicator: (ind: keyof ChartState['indicators']) => void;
   setReplayState: (state: Partial<ChartState['replay']>) => void;
+  stopReplay: () => void;
 }
 
 export const useChartStore = create<ChartState>((set) => ({
   symbol: ASSETS[0].symbol,
-  timeframe: 60, // Default to 1m
+  timeframe: 60,
   livePrice: null,
   connectionStatus: 'connecting',
-  
+
   activeTool: 'cursor',
   drawings: [],
-  
+
   indicators: {
     ma: false,
     rsi: false,
     atr: false,
   },
-  
+
   replay: {
     active: false,
     date: null,
     playing: false,
-    speed: 1000,
+    speed: 500,
+    candles: [],
+    index: 0,
   },
 
   setSymbol: (symbol) => set({ symbol }),
   setTimeframe: (timeframe) => set({ timeframe }),
   setLivePrice: (livePrice) => set({ livePrice }),
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
-  
+
   setActiveTool: (activeTool) => set({ activeTool }),
   addDrawing: (d) => set((s) => ({ drawings: [...s.drawings, d] })),
   updateDrawing: (id, updates) => set((s) => ({
-    drawings: s.drawings.map(d => d.id === id ? { ...d, ...updates } : d)
+    drawings: s.drawings.map(d => d.id === id ? { ...d, ...updates } : d),
   })),
   removeDrawing: (id) => set((s) => ({ drawings: s.drawings.filter(d => d.id !== id) })),
   clearDrawings: () => set({ drawings: [] }),
-  
+
   toggleIndicator: (ind) => set((s) => ({
-    indicators: { ...s.indicators, [ind]: !s.indicators[ind] }
+    indicators: { ...s.indicators, [ind]: !s.indicators[ind] },
   })),
-  
+
   setReplayState: (updates) => set((s) => ({
-    replay: { ...s.replay, ...updates }
+    replay: { ...s.replay, ...updates },
+  })),
+
+  stopReplay: () => set((s) => ({
+    replay: { ...s.replay, active: false, playing: false, candles: [], index: 0, date: null },
   })),
 }));
