@@ -46,6 +46,9 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
         borderColor: '#1A1D27',
         timeVisible: true,
         secondsVisible: true,
+        rightOffset: 12,
+        fixRightEdge: false,
+        rightBarStaysOnScroll: true,
       },
       rightPriceScale: {
         borderColor: '#1A1D27',
