@@ -9,6 +9,12 @@ export type BodyType<T> = T;
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
+const API_BASE_URL = (
+  import.meta as ImportMeta & {
+    env?: Record<string, string | undefined>;
+  }
+).env?.VITE_API_BASE_URL?.replace(/\/$/, "");
+
 function isRequest(input: RequestInfo | URL): input is Request {
   return typeof Request !== "undefined" && input instanceof Request;
 }
@@ -29,6 +35,26 @@ function resolveUrl(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
   if (isUrl(input)) return input.toString();
   return input.url;
+}
+
+function isAbsoluteUrl(url: string): boolean {
+  return /^[a-z][a-z\d+\-.]*:\/\//i.test(url);
+}
+
+function withBaseUrl(input: RequestInfo | URL): RequestInfo | URL {
+  const url = resolveUrl(input);
+
+  if (!API_BASE_URL) return input;
+  if (!url.startsWith("/")) return input;
+  if (isAbsoluteUrl(url)) return input;
+
+  const absoluteUrl = `${API_BASE_URL}${url}`;
+
+  if (typeof input === "string" || isUrl(input)) {
+    return absoluteUrl;
+  }
+
+  return new Request(absoluteUrl, input);
 }
 
 function mergeHeaders(...sources: Array<HeadersInit | undefined>): Headers {
@@ -277,13 +303,17 @@ export async function customFetch<T = unknown>(
 ): Promise<T> {
   const { responseType = "auto", headers: headersInit, ...init } = options;
 
-  const method = resolveMethod(input, init.method);
+  const resolvedInput = withBaseUrl(input);
+  const method = resolveMethod(resolvedInput, init.method);
 
   if (init.body != null && (method === "GET" || method === "HEAD")) {
     throw new TypeError(`customFetch: ${method} requests cannot have a body.`);
   }
 
-  const headers = mergeHeaders(isRequest(input) ? input.headers : undefined, headersInit);
+  const headers = mergeHeaders(
+    isRequest(resolvedInput) ? resolvedInput.headers : undefined,
+    headersInit,
+  );
 
   if (
     typeof init.body === "string" &&
@@ -297,9 +327,9 @@ export async function customFetch<T = unknown>(
     headers.set("accept", DEFAULT_JSON_ACCEPT);
   }
 
-  const requestInfo = { method, url: resolveUrl(input) };
+  const requestInfo = { method, url: resolveUrl(resolvedInput) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  const response = await fetch(resolvedInput, { ...init, method, headers });
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);
