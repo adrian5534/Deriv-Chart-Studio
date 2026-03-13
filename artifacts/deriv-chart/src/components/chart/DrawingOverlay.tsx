@@ -428,6 +428,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   }, [drawWidth, projectPoint, series]);
 
   const selectedHandles = useMemo(() => {
+    if (activeTool !== 'cursor' || currentDrawIdRef.current) return [];
     if (!selectedDrawingId) return [];
 
     const drawing = drawings.find((item) => item.id === selectedDrawingId);
@@ -447,7 +448,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
-  }, [drawings, projectPoint, selectedDrawingId]);
+  }, [activeTool, drawings, projectPoint, selectedDrawingId]);
 
   useEffect(() => {
     renderDrawings();
@@ -509,12 +510,13 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           points: [newPoint],
         });
 
+        syncSelection(null);
+        renderDrawings();
+        bumpOverlay();
+
         if (tool === 'hline') {
           currentDrawIdRef.current = null;
           useChartStore.getState().setActiveTool('cursor');
-          syncSelection(null);
-          renderDrawings();
-          bumpOverlay();
         }
 
         return;
