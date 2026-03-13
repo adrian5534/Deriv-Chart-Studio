@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { IChartApi, ISeriesApi, MouseEventParams } from 'lightweight-charts';
-import { useChartStore, Drawing, Point } from '../../store/use-chart-store';
+import { useChartStore, Drawing, Point, DrawingLineStyle } from '../../store/use-chart-store';
 import { v4 as uuidv4 } from 'uuid';
 
 interface DrawingOverlayProps {
@@ -56,28 +56,71 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function applyLineStyle(ctx: CanvasRenderingContext2D, lineStyle: DrawingLineStyle) {
+  switch (lineStyle) {
+    case 'dashed':
+      ctx.setLineDash([8, 6]);
+      break;
+    case 'dotted':
+      ctx.setLineDash([2, 5]);
+      break;
+    default:
+      ctx.setLineDash([]);
+      break;
+  }
+}
+
 export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const activeToolRef = useRef(useChartStore.getState().activeTool);
-  const drawingsRef = useRef<Drawing[]>(useChartStore.getState().drawings);
+  const activeTool = useChartStore((state) => state.activeTool);
+  const drawings = useChartStore((state) => state.drawings);
+  const selectedDrawingId = useChartStore((state) => state.selectedDrawingId);
+
+  const activeToolRef = useRef(activeTool);
+  const drawingsRef = useRef<Drawing[]>(drawings);
   const currentDrawIdRef = useRef<string | null>(null);
-  const selectedDrawingIdRef = useRef<string | null>(null);
+  const selectedDrawingIdRef = useRef<string | null>(selectedDrawingId);
   const hoveredDrawingIdRef = useRef<string | null>(null);
 
-  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
   const [draggingHandle, setDraggingHandle] = useState<DragHandleState>(null);
   const [, forceRefresh] = useState(0);
 
   const syncSelection = useCallback((id: string | null) => {
     selectedDrawingIdRef.current = id;
-    setSelectedDrawingId(id);
+    useChartStore.getState().setSelectedDrawingId(id);
   }, []);
 
   const bumpOverlay = useCallback(() => {
     forceRefresh((v) => v + 1);
   }, []);
+
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+  }, [activeTool]);
+
+  useEffect(() => {
+    drawingsRef.current = drawings;
+
+    if (
+      selectedDrawingIdRef.current &&
+      !drawings.some((drawing) => drawing.id === selectedDrawingIdRef.current)
+    ) {
+      selectedDrawingIdRef.current = null;
+    }
+
+    if (
+      currentDrawIdRef.current &&
+      !drawings.some((drawing) => drawing.id === currentDrawIdRef.current)
+    ) {
+      currentDrawIdRef.current = null;
+    }
+  }, [drawings]);
+
+  useEffect(() => {
+    selectedDrawingIdRef.current = selectedDrawingId;
+  }, [selectedDrawingId]);
 
   const getCanvasBounds = useCallback(() => {
     const container = containerRef.current;
@@ -126,9 +169,11 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   }, [chart]);
 
   const findHandleAt = useCallback((x: number, y: number) => {
-    const drawings = [...drawingsRef.current].reverse();
+    const items = [...drawingsRef.current].reverse();
 
-    for (const drawing of drawings) {
+    for (const drawing of items) {
+      if (drawing.locked) continue;
+
       for (let i = drawing.points.length - 1; i >= 0; i -= 1) {
         const coords = projectPoint(drawing.points[i]);
         if (!coords) continue;
@@ -147,9 +192,9 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     if (!canvas) return null;
 
     const maxX = drawWidth(canvas);
-    const drawings = [...drawingsRef.current].reverse();
+    const items = [...drawingsRef.current].reverse();
 
-    for (const drawing of drawings) {
+    for (const drawing of items) {
       if (drawing.points.length === 0) continue;
 
       if (drawing.type === 'hline' && drawing.points.length >= 1) {
@@ -172,7 +217,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           const dx = p2.x - p1.x;
           const dy = p2.y - p1.y;
           const xEnd = dx === 0 ? p2.x : maxX;
-          const yEnd = dx === 0 ? maxX : p1.y + ((xEnd - p1.x) / dx) * dy;
+          const yEnd = dx === 0 ? (dy >= 0 ? canvas.clientHeight : 0) : p1.y + ((xEnd - p1.x) / dx) * dy;
 
           if (distanceToSegment(x, y, p1.x, p1.y, xEnd, yEnd) <= HIT_DISTANCE) {
             return drawing.id;
@@ -190,13 +235,19 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         const top = Math.min(p1.y, p2.y);
         const bottom = Math.max(p1.y, p2.y);
 
+        const nearEdge =
+          distanceToSegment(x, y, left, top, right, top) <= HIT_DISTANCE ||
+          distanceToSegment(x, y, right, top, right, bottom) <= HIT_DISTANCE ||
+          distanceToSegment(x, y, right, bottom, left, bottom) <= HIT_DISTANCE ||
+          distanceToSegment(x, y, left, bottom, left, top) <= HIT_DISTANCE;
+
         const inside =
           x >= left - HIT_DISTANCE &&
           x <= right + HIT_DISTANCE &&
           y >= top - HIT_DISTANCE &&
           y <= bottom + HIT_DISTANCE;
 
-        if (inside) {
+        if (nearEdge || inside) {
           return drawing.id;
         }
       }
@@ -256,10 +307,12 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       const color = drawing.color || '#2962FF';
       const isSelected = drawing.id === selectedDrawingIdRef.current;
       const isHovered = drawing.id === hoveredDrawingIdRef.current;
+      const baseLineWidth = drawing.lineWidth || 2;
 
       ctx.save();
       ctx.strokeStyle = color;
-      ctx.lineWidth = isSelected ? 2.5 : isHovered ? 2.25 : 2;
+      ctx.lineWidth = isSelected ? baseLineWidth + 0.5 : isHovered ? baseLineWidth + 0.25 : baseLineWidth;
+      applyLineStyle(ctx, drawing.lineStyle || 'solid');
 
       if (drawing.type === 'trendline' && drawing.points.length >= 2) {
         const p1 = projectPoint(drawing.points[0]);
@@ -295,12 +348,11 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         const y1 = series.priceToCoordinate(drawing.points[0].price);
         if (y1 != null) {
           ctx.beginPath();
-          ctx.setLineDash([6, 4]);
           ctx.moveTo(0, y1);
           ctx.lineTo(maxX, y1);
           ctx.stroke();
-          ctx.setLineDash([]);
 
+          ctx.setLineDash([]);
           ctx.fillStyle = color;
           ctx.font = '11px monospace';
           ctx.fillText(drawing.points[0].price.toFixed(4), Math.max(8, maxX - 90), y1 - 6);
@@ -314,7 +366,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           const rectWidth = Math.abs(p2.x - p1.x);
           const rectHeight = Math.abs(p2.y - p1.y);
 
-          ctx.fillStyle = hexToRgba(color, 0.12);
+          ctx.fillStyle = hexToRgba(color, drawing.fillOpacity ?? 0.12);
           ctx.fillRect(left, top, rectWidth, rectHeight);
           ctx.strokeRect(left, top, rectWidth, rectHeight);
         }
@@ -355,7 +407,8 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         }
       }
 
-      if (isSelected || isHovered) {
+      if ((isSelected || isHovered) && !drawing.locked) {
+        ctx.setLineDash([]);
         drawing.points.forEach((point) => {
           const coords = projectPoint(point);
           if (!coords) return;
@@ -377,8 +430,8 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   const selectedHandles = useMemo(() => {
     if (!selectedDrawingId) return [];
 
-    const drawing = drawingsRef.current.find((item) => item.id === selectedDrawingId);
-    if (!drawing) return [];
+    const drawing = drawings.find((item) => item.id === selectedDrawingId);
+    if (!drawing || drawing.locked) return [];
 
     return drawing.points
       .map((point, pointIndex) => {
@@ -394,33 +447,12 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
-  }, [projectPoint, selectedDrawingId, drawingsRef.current]);
+  }, [drawings, projectPoint, selectedDrawingId]);
 
   useEffect(() => {
-    const unsubscribe = useChartStore.subscribe((state) => {
-      activeToolRef.current = state.activeTool;
-      drawingsRef.current = state.drawings;
-
-      if (
-        selectedDrawingIdRef.current &&
-        !state.drawings.some((drawing) => drawing.id === selectedDrawingIdRef.current)
-      ) {
-        syncSelection(null);
-      }
-
-      if (
-        currentDrawIdRef.current &&
-        !state.drawings.some((drawing) => drawing.id === currentDrawIdRef.current)
-      ) {
-        currentDrawIdRef.current = null;
-      }
-
-      renderDrawings();
-      bumpOverlay();
-    });
-
-    return unsubscribe;
-  }, [bumpOverlay, renderDrawings, syncSelection]);
+    renderDrawings();
+    bumpOverlay();
+  }, [drawings, selectedDrawingId, renderDrawings, bumpOverlay]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -566,7 +598,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       if (!nextPoint) return;
 
       const drawing = drawingsRef.current.find((item) => item.id === draggingHandle.drawingId);
-      if (!drawing) return;
+      if (!drawing || drawing.locked) return;
 
       const nextPoints = drawing.points.map((point, index) =>
         index === draggingHandle.pointIndex ? nextPoint : point,
@@ -607,6 +639,9 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         selectedDrawingIdRef.current &&
         activeToolRef.current === 'cursor'
       ) {
+        const selected = drawingsRef.current.find((drawing) => drawing.id === selectedDrawingIdRef.current);
+        if (selected?.locked) return;
+
         useChartStore.getState().removeDrawing(selectedDrawingIdRef.current);
         syncSelection(null);
         renderDrawings();
@@ -657,6 +692,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
               borderColor: handle.color,
               pointerEvents: 'auto',
               cursor: 'grab',
+              touchAction: 'none',
             }}
           />
         ))}
