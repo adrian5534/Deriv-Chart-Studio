@@ -626,7 +626,11 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   };
 
   return (
-    <div ref={containerRef} className="absolute inset-0 z-10">
+    <div
+      ref={containerRef}
+      className="absolute inset-0 z-10"
+      style={{ pointerEvents: 'none' }}
+    >
       <canvas
         ref={canvasRef}
         className="absolute inset-0"
