@@ -180,7 +180,7 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
       wsRef.current.send(JSON.stringify({
         ticks_history: symbol,
         adjust_start_time: 1,
-        count: 500,
+        count: 2500,
         end: endEpoch,
         style: 'candles',
         granularity: timeframe,

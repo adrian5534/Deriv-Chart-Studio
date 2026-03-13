@@ -3,6 +3,7 @@ import { ASSETS } from '../lib/deriv-constants';
 import { CandleData } from '../hooks/use-deriv-websocket';
 
 export type DrawingTool = 'cursor' | 'trendline' | 'hline' | 'fib' | 'rect' | 'ray';
+export type DrawingLineStyle = 'solid' | 'dashed' | 'dotted';
 
 export interface Point {
   time: number;
@@ -14,7 +15,11 @@ export interface Drawing {
   type: DrawingTool;
   points: Point[];
   text?: string;
-  color?: string;
+  color: string;
+  lineWidth: number;
+  lineStyle: DrawingLineStyle;
+  fillOpacity: number;
+  locked: boolean;
 }
 
 interface ChartState {
@@ -26,6 +31,7 @@ interface ChartState {
   // Drawing tools
   activeTool: DrawingTool;
   drawings: Drawing[];
+  selectedDrawingId: string | null;
 
   // Indicators
   indicators: {
@@ -37,11 +43,11 @@ interface ChartState {
   // Replay
   replay: {
     active: boolean;
-    date: string | null; // ISO date string
+    date: string | null;
     playing: boolean;
-    speed: number; // ms between candles
+    speed: number;
     candles: CandleData[];
-    index: number; // how many candles currently shown
+    index: number;
   };
 
   // Actions
@@ -50,13 +56,72 @@ interface ChartState {
   setLivePrice: (p: number) => void;
   setConnectionStatus: (status: 'connecting' | 'connected' | 'disconnected') => void;
   setActiveTool: (t: DrawingTool) => void;
-  addDrawing: (d: Drawing) => void;
+
+  addDrawing: (d: Omit<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'> & Partial<Pick<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'>>) => void;
   updateDrawing: (id: string, d: Partial<Drawing>) => void;
   removeDrawing: (id: string) => void;
   clearDrawings: () => void;
+
+  setSelectedDrawingId: (id: string | null) => void;
+  updateSelectedDrawing: (updates: Partial<Drawing>) => void;
+
   toggleIndicator: (ind: keyof ChartState['indicators']) => void;
   setReplayState: (state: Partial<ChartState['replay']>) => void;
   stopReplay: () => void;
+}
+
+const DEFAULT_DRAWING_STYLE = {
+  color: '#2962FF',
+  lineWidth: 2,
+  lineStyle: 'solid' as DrawingLineStyle,
+  fillOpacity: 0.12,
+  locked: false,
+};
+
+function clampLineWidth(value: number | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return DEFAULT_DRAWING_STYLE.lineWidth;
+  return Math.max(1, Math.min(8, Math.round(value)));
+}
+
+function clampFillOpacity(value: number | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return DEFAULT_DRAWING_STYLE.fillOpacity;
+  return Math.max(0, Math.min(1, value));
+}
+
+function normalizeDrawing(
+  drawing: Omit<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'> &
+    Partial<Pick<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'>>,
+): Drawing {
+  return {
+    ...drawing,
+    color: drawing.color || DEFAULT_DRAWING_STYLE.color,
+    lineWidth: clampLineWidth(drawing.lineWidth),
+    lineStyle: drawing.lineStyle || DEFAULT_DRAWING_STYLE.lineStyle,
+    fillOpacity: clampFillOpacity(drawing.fillOpacity),
+    locked: drawing.locked ?? DEFAULT_DRAWING_STYLE.locked,
+  };
+}
+
+function normalizeDrawingUpdates(updates: Partial<Drawing>): Partial<Drawing> {
+  const normalized: Partial<Drawing> = { ...updates };
+
+  if ('lineWidth' in updates) {
+    normalized.lineWidth = clampLineWidth(updates.lineWidth);
+  }
+
+  if ('fillOpacity' in updates) {
+    normalized.fillOpacity = clampFillOpacity(updates.fillOpacity);
+  }
+
+  if ('color' in updates && !updates.color) {
+    normalized.color = DEFAULT_DRAWING_STYLE.color;
+  }
+
+  if ('lineStyle' in updates && !updates.lineStyle) {
+    normalized.lineStyle = DEFAULT_DRAWING_STYLE.lineStyle;
+  }
+
+  return normalized;
 }
 
 export const useChartStore = create<ChartState>((set) => ({
@@ -67,6 +132,7 @@ export const useChartStore = create<ChartState>((set) => ({
 
   activeTool: 'cursor',
   drawings: [],
+  selectedDrawingId: null,
 
   indicators: {
     ma: false,
@@ -89,22 +155,66 @@ export const useChartStore = create<ChartState>((set) => ({
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
 
   setActiveTool: (activeTool) => set({ activeTool }),
-  addDrawing: (d) => set((s) => ({ drawings: [...s.drawings, d] })),
-  updateDrawing: (id, updates) => set((s) => ({
-    drawings: s.drawings.map(d => d.id === id ? { ...d, ...updates } : d),
-  })),
-  removeDrawing: (id) => set((s) => ({ drawings: s.drawings.filter(d => d.id !== id) })),
-  clearDrawings: () => set({ drawings: [] }),
 
-  toggleIndicator: (ind) => set((s) => ({
-    indicators: { ...s.indicators, [ind]: !s.indicators[ind] },
-  })),
+  addDrawing: (drawing) =>
+    set((state) => {
+      const nextDrawing = normalizeDrawing(drawing);
+      return {
+        drawings: [...state.drawings, nextDrawing],
+        selectedDrawingId: nextDrawing.id,
+      };
+    }),
 
-  setReplayState: (updates) => set((s) => ({
-    replay: { ...s.replay, ...updates },
-  })),
+  updateDrawing: (id, updates) =>
+    set((state) => ({
+      drawings: state.drawings.map((drawing) =>
+        drawing.id === id ? { ...drawing, ...normalizeDrawingUpdates(updates) } : drawing,
+      ),
+    })),
 
-  stopReplay: () => set((s) => ({
-    replay: { ...s.replay, active: false, playing: false, candles: [], index: 0, date: null },
-  })),
+  removeDrawing: (id) =>
+    set((state) => ({
+      drawings: state.drawings.filter((drawing) => drawing.id !== id),
+      selectedDrawingId: state.selectedDrawingId === id ? null : state.selectedDrawingId,
+    })),
+
+  clearDrawings: () =>
+    set({
+      drawings: [],
+      selectedDrawingId: null,
+    }),
+
+  setSelectedDrawingId: (selectedDrawingId) => set({ selectedDrawingId }),
+
+  updateSelectedDrawing: (updates) =>
+    set((state) => {
+      if (!state.selectedDrawingId) {
+        return state;
+      }
+
+      const normalizedUpdates = normalizeDrawingUpdates(updates);
+
+      return {
+        drawings: state.drawings.map((drawing) =>
+          drawing.id === state.selectedDrawingId
+            ? { ...drawing, ...normalizedUpdates }
+            : drawing,
+        ),
+      };
+    }),
+
+  toggleIndicator: (ind) =>
+    set((state) => ({
+      indicators: { ...state.indicators, [ind]: !state.indicators[ind] },
+    })),
+
+  setReplayState: (updates) =>
+    set((state) => ({
+      replay: { ...state.replay, ...updates },
+    })),
+
+  stopReplay: () =>
+    set((state) => ({
+      replay: { ...state.replay, active: false, playing: false, candles: [], index: 0, date: null },
+    })),
 }));
