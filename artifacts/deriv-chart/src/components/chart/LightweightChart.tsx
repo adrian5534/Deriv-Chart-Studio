@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
-import { createChart, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, ColorType } from 'lightweight-charts';
 import { useChartStore } from '../../store/use-chart-store';
 import { useDerivWebSocket, CandleData } from '../../hooks/use-deriv-websocket';
 import DrawingOverlay from './DrawingOverlay';
@@ -30,7 +30,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
     const chart = createChart(chartContainerRef.current, {
       layout: {
-        background: { type: 'Solid' as const, color: '#0B0E14' },
+        background: { type: ColorType.Solid, color: '#0B0E14' },
         textColor: '#9B9EA8',
       },
       grid: {
