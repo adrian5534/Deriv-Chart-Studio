@@ -502,7 +502,6 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       if (!currentDrawIdRef.current) {
         const id = uuidv4();
         currentDrawIdRef.current = id;
-        syncSelection(id);
 
         useChartStore.getState().addDrawing({
           id,
@@ -513,6 +512,9 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         if (tool === 'hline') {
           currentDrawIdRef.current = null;
           useChartStore.getState().setActiveTool('cursor');
+          syncSelection(null);
+          renderDrawings();
+          bumpOverlay();
         }
 
         return;
@@ -528,8 +530,10 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       }
 
       currentDrawIdRef.current = null;
-      syncSelection(id);
       useChartStore.getState().setActiveTool('cursor');
+      syncSelection(null);
+      renderDrawings();
+      bumpOverlay();
     };
 
     const handleCrosshairMove = (param: MouseEventParams) => {
