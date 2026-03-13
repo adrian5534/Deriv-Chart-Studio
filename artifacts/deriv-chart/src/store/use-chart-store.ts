@@ -8,6 +8,7 @@ export type DrawingLineStyle = 'solid' | 'dashed' | 'dotted';
 export interface Point {
   time: number;
   price: number;
+  logical?: number;
 }
 
 export interface Drawing {

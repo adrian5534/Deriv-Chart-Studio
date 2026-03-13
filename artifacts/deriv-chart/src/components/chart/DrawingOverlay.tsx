@@ -138,8 +138,26 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     return container.getBoundingClientRect();
   }, []);
 
-  const projectPoint = useCallback((point: Point) => {
+  const getPointLogical = useCallback((point: Point) => {
+    if (typeof point.logical === 'number') {
+      return point.logical;
+    }
+
     const x = chart.timeScale().timeToCoordinate(point.time as any);
+    if (x == null) {
+      return null;
+    }
+
+    const logical = chart.timeScale().coordinateToLogical(x);
+    return logical == null ? null : Number(logical);
+  }, [chart]);
+
+  const projectPoint = useCallback((point: Point) => {
+    const x =
+      typeof point.logical === 'number'
+        ? chart.timeScale().logicalToCoordinate(point.logical)
+        : chart.timeScale().timeToCoordinate(point.time as any);
+
     const y = series.priceToCoordinate(point.price);
 
     if (x == null || y == null) return null;
@@ -147,28 +165,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     return { x, y };
   }, [chart, series]);
 
-  const getCanvasPointFromClient = useCallback((clientX: number, clientY: number) => {
-    const bounds = getCanvasBounds();
-    if (!bounds) return null;
-
-    return {
-      x: clientX - bounds.left,
-      y: clientY - bounds.top,
-    };
-  }, [getCanvasBounds]);
-
-  const toChartPoint = useCallback((x: number, y: number): Point | null => {
-    const time = chart.timeScale().coordinateToTime(x);
-    const price = series.coordinateToPrice(y);
-
-    if (time == null || price == null || typeof time !== 'number') {
-      return null;
-    }
-
-    return { time, price };
-  }, [chart, series]);
-
-  const toLogicalPricePoint = useCallback((x: number, y: number) => {
+  const toChartPoint = useCallback((x: number, y: number, referencePoint?: Point | null): Point | null => {
     const logical = chart.timeScale().coordinateToLogical(x);
     const price = series.coordinateToPrice(y);
 
@@ -176,8 +173,32 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       return null;
     }
 
-    return { logical, price };
-  }, [chart, series]);
+    const nextLogical = Number(logical);
+    const directTime = chart.timeScale().coordinateToTime(x);
+
+    if (typeof directTime === 'number') {
+      return {
+        time: directTime,
+        price,
+        logical: nextLogical,
+      };
+    }
+
+    if (!referencePoint) {
+      return null;
+    }
+
+    const referenceLogical = getPointLogical(referencePoint);
+    if (referenceLogical == null) {
+      return null;
+    }
+
+    return {
+      time: referencePoint.time + Math.round((nextLogical - referenceLogical) * timeframe),
+      price,
+      logical: nextLogical,
+    };
+  }, [chart, series, timeframe, getPointLogical]);
 
   const drawWidth = useCallback((canvas: HTMLCanvasElement) => {
     let priceScaleWidth = 0;
@@ -442,6 +463,20 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           ctx.fill();
           ctx.stroke();
         });
+      } else if (isHovered && !isSelected && !drawing.locked) {
+        ctx.setLineDash([]);
+        drawing.points.forEach((point) => {
+          const coords = projectPoint(point);
+          if (!coords) return;
+
+          ctx.beginPath();
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.arc(coords.x, coords.y, HANDLE_RADIUS, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        });
       }
 
       ctx.restore();
@@ -521,7 +556,213 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         drawingId,
         startLogical: anchor.logical,
         startPrice: anchor.price,
-        originalPoints: drawing.points.map((point) => ({ ...point })),
+        originalPoints: drawing.points.map((point) => ({
+          ...point,
+          logical: getPointLogical(point) ?? point.logical,
+        })),
+      });
+
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    host.addEventListener('pointerdown', handlePointerDown, true);
+
+    return () => {
+      host.removeEventListener('pointerdown', handlePointerDown, true);
+    };
+  }, [
+    draggingDrawing,
+    draggingHandle,
+    findDrawingAt,
+    findHandleAt,
+    getCanvasPointFromClient,
+    syncSelection,
+    toLogicalPricePoint,
+  ]);
+
+  useEffect(() => {
+    const handleScaleChange = () => {
+      renderDrawings();
+      bumpOverlay();
+    };
+
+    const handleChartClick = (param: MouseEventParams) => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        return;
+      }
+
+      if (!param.point) return;
+
+      const tool = activeToolRef.current;
+
+      if (tool === 'cursor') {
+        const handleHit = findHandleAt(param.point.x, param.point.y);
+        if (handleHit) {
+          syncSelection(handleHit.drawingId);
+          renderDrawings();
+          bumpOverlay();
+          return;
+        }
+
+        const drawingHit = findDrawingAt(param.point.x, param.point.y);
+        syncSelection(drawingHit);
+        renderDrawings();
+        bumpOverlay();
+        return;
+      }
+
+      if (!currentDrawIdRef.current) {
+        const firstPoint = toChartPoint(param.point.x, param.point.y);
+        if (!firstPoint) return;
+
+        const id = uuidv4();
+        currentDrawIdRef.current = id;
+
+        useChartStore.getState().addDrawing({
+          id,
+          type: tool,
+          points: [firstPoint],
+        });
+
+        syncSelection(null);
+        renderDrawings();
+        bumpOverlay();
+
+        if (tool === 'hline') {
+          currentDrawIdRef.current = null;
+          useChartStore.getState().setActiveTool('cursor');
+        }
+
+        return;
+      }
+
+      const id = currentDrawIdRef.current;
+      const existing = drawingsRef.current.find((drawing) => drawing.id === id);
+      if (!existing || existing.points.length === 0) return;
+
+      const secondPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
+      if (!secondPoint) return;
+
+      useChartStore.getState().updateDrawing(id, {
+        points: [...existing.points.slice(0, 1), secondPoint],
+      });
+
+      currentDrawIdRef.current = null;
+      useChartStore.getState().setActiveTool('cursor');
+      syncSelection(null);
+      renderDrawings();
+      bumpOverlay();
+    };
+
+    const handleCrosshairMove = (param: MouseEventParams) => {
+      const tool = activeToolRef.current;
+
+      if (tool !== 'cursor') {
+        const id = currentDrawIdRef.current;
+        if (!id || !param.point) return;
+
+        const existing = drawingsRef.current.find((drawing) => drawing.id === id);
+        if (!existing || existing.points.length === 0) return;
+
+        const previewPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
+        if (!previewPoint) return;
+
+        useChartStore.getState().updateDrawing(id, {
+          points: [existing.points[0], previewPoint],
+        });
+
+        return;
+      }
+
+      if (draggingHandle || draggingDrawing) return;
+      if (!param.point) return;
+
+      const drawingHit =
+        findHandleAt(param.point.x, param.point.y)?.drawingId ??
+        findDrawingAt(param.point.x, param.point.y);
+
+      if (hoveredDrawingIdRef.current !== drawingHit) {
+        hoveredDrawingIdRef.current = drawingHit;
+        renderDrawings();
+        bumpOverlay();
+      }
+    };
+
+    chart.subscribeClick(handleChartClick);
+    chart.subscribeCrosshairMove(handleCrosshairMove);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handleScaleChange);
+
+    renderDrawings();
+    bumpOverlay();
+
+    return () => {
+      chart.unsubscribeClick(handleChartClick);
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleScaleChange);
+    };
+  }, [
+    bumpOverlay,
+    chart,
+    draggingDrawing,
+    draggingHandle,
+    findDrawingAt,
+    findHandleAt,
+    renderDrawings,
+    syncSelection,
+    toChartPoint,
+  ]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const resize = () => {
+      renderDrawings();
+      bumpOverlay();
+    };
+
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+    resize();
+
+    return () => observer.disconnect();
+  }, [bumpOverlay, renderDrawings]);
+
+  useEffect(() => {
+    const host = containerRef.current?.parentElement;
+    if (!host) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (activeToolRef.current !== 'cursor') return;
+      if (draggingHandle || draggingDrawing) return;
+
+      const canvasPoint = getCanvasPointFromClient(event.clientX, event.clientY);
+      if (!canvasPoint) return;
+
+      const handleHit = findHandleAt(canvasPoint.x, canvasPoint.y);
+      if (handleHit) return;
+
+      const drawingId = findDrawingAt(canvasPoint.x, canvasPoint.y);
+      if (!drawingId) return;
+
+      const drawing = drawingsRef.current.find((item) => item.id === drawingId);
+      if (!drawing || drawing.locked) return;
+
+      const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
+      if (!anchor) return;
+
+      syncSelection(drawingId);
+      suppressNextClickRef.current = false;
+      setDraggingDrawing({
+        drawingId,
+        startLogical: anchor.logical,
+        startPrice: anchor.price,
+        originalPoints: drawing.points.map((point) => ({
+          ...point,
+          logical: getPointLogical(point) ?? point.logical,
+        })),
       });
 
       event.preventDefault();
@@ -570,21 +811,17 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         return;
       }
 
-      if (!param.time) return;
-
-      const price = series.coordinateToPrice(param.point.y);
-      if (price == null) return;
-
-      const newPoint: Point = { time: param.time as number, price };
-
       if (!currentDrawIdRef.current) {
+        const firstPoint = toChartPoint(param.point.x, param.point.y);
+        if (!firstPoint) return;
+
         const id = uuidv4();
         currentDrawIdRef.current = id;
 
         useChartStore.getState().addDrawing({
           id,
           type: tool,
-          points: [newPoint],
+          points: [firstPoint],
         });
 
         syncSelection(null);
@@ -601,12 +838,14 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
 
       const id = currentDrawIdRef.current;
       const existing = drawingsRef.current.find((drawing) => drawing.id === id);
+      if (!existing || existing.points.length === 0) return;
 
-      if (existing) {
-        useChartStore.getState().updateDrawing(id, {
-          points: [...existing.points.slice(0, 1), newPoint],
-        });
-      }
+      const secondPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
+      if (!secondPoint) return;
+
+      useChartStore.getState().updateDrawing(id, {
+        points: [...existing.points.slice(0, 1), secondPoint],
+      });
 
       currentDrawIdRef.current = null;
       useChartStore.getState().setActiveTool('cursor');
@@ -620,16 +859,16 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
 
       if (tool !== 'cursor') {
         const id = currentDrawIdRef.current;
-        if (!id || !param.point || !param.time) return;
-
-        const price = series.coordinateToPrice(param.point.y);
-        if (price == null) return;
+        if (!id || !param.point) return;
 
         const existing = drawingsRef.current.find((drawing) => drawing.id === id);
         if (!existing || existing.points.length === 0) return;
 
+        const previewPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
+        if (!previewPoint) return;
+
         useChartStore.getState().updateDrawing(id, {
-          points: [existing.points[0], { time: param.time as number, price }],
+          points: [existing.points[0], previewPoint],
         });
 
         return;
@@ -645,19 +884,20 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       if (hoveredDrawingIdRef.current !== drawingHit) {
         hoveredDrawingIdRef.current = drawingHit;
         renderDrawings();
+        bumpOverlay();
       }
     };
 
     chart.subscribeClick(handleChartClick);
     chart.subscribeCrosshairMove(handleCrosshairMove);
-    chart.timeScale().subscribeVisibleTimeRangeChange(renderDrawings);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(renderDrawings);
 
     renderDrawings();
 
     return () => {
       chart.unsubscribeClick(handleChartClick);
       chart.unsubscribeCrosshairMove(handleCrosshairMove);
-      chart.timeScale().unsubscribeVisibleTimeRangeChange(renderDrawings);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(renderDrawings);
     };
   }, [
     bumpOverlay,
@@ -679,11 +919,16 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       if (!canvasPoint) return;
 
       if (draggingHandle) {
-        const nextPoint = toChartPoint(canvasPoint.x, canvasPoint.y);
-        if (!nextPoint) return;
-
         const drawing = drawingsRef.current.find((item) => item.id === draggingHandle.drawingId);
         if (!drawing || drawing.locked) return;
+
+        const nextPoint = toChartPoint(
+          canvasPoint.x,
+          canvasPoint.y,
+          drawing.points[draggingHandle.pointIndex],
+        );
+
+        if (!nextPoint) return;
 
         const nextPoints = drawing.points.map((point, index) =>
           index === draggingHandle.pointIndex ? nextPoint : point,
@@ -703,13 +948,16 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
 
         const logicalDelta = anchor.logical - draggingDrawing.startLogical;
         const priceDelta = anchor.price - draggingDrawing.startPrice;
-        const timeDelta = Math.round(logicalDelta * timeframe);
 
         suppressNextClickRef.current = true;
         useChartStore.getState().updateDrawing(draggingDrawing.drawingId, {
           points: draggingDrawing.originalPoints.map((point) => ({
-            time: point.time + timeDelta,
+            time: point.time + Math.round(logicalDelta * timeframe),
             price: point.price + priceDelta,
+            logical:
+              typeof point.logical === 'number'
+                ? point.logical + logicalDelta
+                : logicalDelta,
           })),
         });
       }
@@ -806,4 +1054,4 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       </div>
     </div>
   );
-}
+}uhh
