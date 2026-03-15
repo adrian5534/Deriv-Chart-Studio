@@ -23,6 +23,16 @@ type DragDrawingState = {
 const HANDLE_RADIUS = 5;
 const HIT_DISTANCE = 10;
 
+const DEFAULT_FIB_LEVELS = [
+  { value: 0, label: '0.0%', color: '#ef5350', visible: true, lineStyle: 'solid' as DrawingLineStyle },
+  { value: 0.236, label: '23.6%', color: '#ff9800', visible: true, lineStyle: 'dashed' as DrawingLineStyle },
+  { value: 0.382, label: '38.2%', color: '#fdd835', visible: true, lineStyle: 'dashed' as DrawingLineStyle },
+  { value: 0.5, label: '50.0%', color: '#26a69a', visible: true, lineStyle: 'dashed' as DrawingLineStyle },
+  { value: 0.618, label: '61.8%', color: '#26a69a', visible: true, lineStyle: 'dashed' as DrawingLineStyle },
+  { value: 0.786, label: '78.6%', color: '#42a5f5', visible: true, lineStyle: 'dashed' as DrawingLineStyle },
+  { value: 1, label: '100.0%', color: '#ef5350', visible: true, lineStyle: 'solid' as DrawingLineStyle },
+];
+
 function distance(x1: number, y1: number, x2: number, y2: number) {
   return Math.hypot(x2 - x1, y2 - y1);
 }
@@ -75,6 +85,11 @@ function applyLineStyle(ctx: CanvasRenderingContext2D, lineStyle: DrawingLineSty
       ctx.setLineDash([]);
       break;
   }
+}
+
+function getVisibleFibLevels(drawing: Drawing) {
+  const configured = drawing.fibLevels?.filter((level) => level.visible !== false);
+  return configured?.length ? configured : DEFAULT_FIB_LEVELS;
 }
 
 export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
@@ -138,6 +153,14 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     return container.getBoundingClientRect();
   }, []);
 
+  const isDrawingVisibleOnTimeframe = useCallback((drawing: Drawing) => {
+    if (!drawing.visibleTimeframes || drawing.visibleTimeframes.length === 0) {
+      return true;
+    }
+
+    return drawing.visibleTimeframes.includes(timeframe);
+  }, [timeframe]);
+
   const getPointLogical = useCallback((point: Point) => {
     if (typeof point.logical === 'number') {
       return point.logical;
@@ -153,10 +176,12 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   }, [chart]);
 
   const projectPoint = useCallback((point: Point) => {
+    const xFromTime = chart.timeScale().timeToCoordinate(point.time as any);
     const x =
-      typeof point.logical === 'number'
+      xFromTime ??
+      (typeof point.logical === 'number'
         ? chart.timeScale().logicalToCoordinate(point.logical)
-        : chart.timeScale().timeToCoordinate(point.time as any);
+        : null);
 
     const y = series.priceToCoordinate(point.price);
 
@@ -240,7 +265,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     const items = [...drawingsRef.current].reverse();
 
     for (const drawing of items) {
-      if (drawing.locked) continue;
+      if (drawing.locked || !isDrawingVisibleOnTimeframe(drawing)) continue;
 
       for (let i = drawing.points.length - 1; i >= 0; i -= 1) {
         const coords = projectPoint(drawing.points[i]);
@@ -253,7 +278,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     }
 
     return null;
-  }, [projectPoint]);
+  }, [isDrawingVisibleOnTimeframe, projectPoint]);
 
   const findDrawingAt = useCallback((x: number, y: number) => {
     const canvas = canvasRef.current;
@@ -263,7 +288,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     const items = [...drawingsRef.current].reverse();
 
     for (const drawing of items) {
-      if (drawing.points.length === 0) continue;
+      if (!isDrawingVisibleOnTimeframe(drawing) || drawing.points.length === 0) continue;
 
       if (drawing.type === 'hline' && drawing.points.length >= 1) {
         const y1 = series.priceToCoordinate(drawing.points[0].price);
@@ -324,19 +349,24 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       }
 
       if (drawing.type === 'fib' && drawing.points.length >= 2) {
-        const p1 = projectPoint(drawing.points[0]);
-        const p2 = projectPoint(drawing.points[1]);
+        const fromPoint = drawing.fibReverse ? drawing.points[1] : drawing.points[0];
+        const toPoint = drawing.fibReverse ? drawing.points[0] : drawing.points[1];
+        const p1 = projectPoint(fromPoint);
+        const p2 = projectPoint(toPoint);
         if (!p1 || !p2) continue;
 
-        const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+        const levels = getVisibleFibLevels(drawing);
         const diff = p2.y - p1.y;
-        const startX = Math.min(p1.x, p2.x);
+        const minX = Math.min(p1.x, p2.x);
+        const maxAnchorX = Math.max(p1.x, p2.x);
+        const lineStartX = drawing.fibExtendLeft ? 0 : minX;
+        const lineEndX = drawing.fibExtendRight === false ? maxAnchorX : maxX;
 
         for (const level of levels) {
-          const levelY = p1.y + diff * level;
+          const levelY = p1.y + diff * level.value;
           const nearLine =
-            x >= startX - HIT_DISTANCE &&
-            x <= maxX + HIT_DISTANCE &&
+            x >= lineStartX - HIT_DISTANCE &&
+            x <= lineEndX + HIT_DISTANCE &&
             Math.abs(y - levelY) <= HIT_DISTANCE;
 
           if (nearLine) {
@@ -347,7 +377,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     }
 
     return null;
-  }, [drawWidth, projectPoint, series]);
+  }, [drawWidth, isDrawingVisibleOnTimeframe, projectPoint, series]);
 
   const renderDrawings = useCallback(() => {
     const canvas = canvasRef.current;
@@ -373,7 +403,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     const maxX = drawWidth(canvas);
 
     drawingsRef.current.forEach((drawing) => {
-      if (!drawing.points.length) return;
+      if (!drawing.points.length || !isDrawingVisibleOnTimeframe(drawing)) return;
 
       const color = drawing.color || '#2962FF';
       const isSelected = drawing.id === selectedDrawingIdRef.current;
@@ -446,39 +476,50 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           ctx.strokeRect(left, top, rectWidth, rectHeight);
         }
       } else if (drawing.type === 'fib' && drawing.points.length >= 2) {
-        const p1 = projectPoint(drawing.points[0]);
-        const p2 = projectPoint(drawing.points[1]);
+        const fromPoint = drawing.fibReverse ? drawing.points[1] : drawing.points[0];
+        const toPoint = drawing.fibReverse ? drawing.points[0] : drawing.points[1];
+        const p1 = projectPoint(fromPoint);
+        const p2 = projectPoint(toPoint);
 
         if (p1 && p2) {
-          const levels = [
-            { r: 0, color: '#ef5350' },
-            { r: 0.236, color: '#ff9800' },
-            { r: 0.382, color: '#fdd835' },
-            { r: 0.5, color: '#26a69a' },
-            { r: 0.618, color: '#26a69a' },
-            { r: 0.786, color: '#42a5f5' },
-            { r: 1, color: '#ef5350' },
-          ];
-
+          const levels = getVisibleFibLevels(drawing);
           const diff = p2.y - p1.y;
-          const startX = Math.min(p1.x, p2.x);
-          const priceDiff = drawing.points[1].price - drawing.points[0].price;
+          const priceDiff = toPoint.price - fromPoint.price;
+          const minX = Math.min(p1.x, p2.x);
+          const maxAnchorX = Math.max(p1.x, p2.x);
+          const lineStartX = drawing.fibExtendLeft ? 0 : minX;
+          const lineEndX = drawing.fibExtendRight === false ? maxAnchorX : maxX;
+          const showLabels = drawing.fibShowLabels !== false;
 
-          levels.forEach(({ r, color: levelColor }) => {
-            const y = p1.y + diff * r;
-            const priceAtLevel = drawing.points[0].price + priceDiff * r;
+          ctx.beginPath();
+          ctx.strokeStyle = color;
+          ctx.setLineDash([]);
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+
+          levels.forEach((level) => {
+            const y = p1.y + diff * level.value;
+            const priceAtLevel = fromPoint.price + priceDiff * level.value;
 
             ctx.beginPath();
-            ctx.strokeStyle = levelColor;
-            ctx.setLineDash([5, 4]);
-            ctx.moveTo(startX, y);
-            ctx.lineTo(maxX, y);
+            ctx.strokeStyle = level.color || color;
+            ctx.lineWidth = baseLineWidth;
+            applyLineStyle(ctx, level.lineStyle || drawing.lineStyle || 'solid');
+            ctx.moveTo(lineStartX, y);
+            ctx.lineTo(lineEndX, y);
             ctx.stroke();
-            ctx.setLineDash([]);
 
-            ctx.fillStyle = levelColor;
-            ctx.font = '10px monospace';
-            ctx.fillText(`${(r * 100).toFixed(1)}% — ${priceAtLevel.toFixed(4)}`, startX + 4, y - 4);
+            if (showLabels) {
+              ctx.setLineDash([]);
+              ctx.fillStyle = level.color || color;
+              ctx.font = '10px monospace';
+              ctx.fillText(
+                `${level.label || `${(level.value * 100).toFixed(1)}%`} — ${priceAtLevel.toFixed(4)}`,
+                Math.max(4, lineStartX + 4),
+                y - 4,
+              );
+            }
           });
         }
       }
@@ -501,14 +542,14 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
 
       ctx.restore();
     });
-  }, [drawWidth, projectPoint, series]);
+  }, [drawWidth, isDrawingVisibleOnTimeframe, projectPoint, series]);
 
   const selectedHandles = useMemo(() => {
     if (activeTool !== 'cursor' || currentDrawIdRef.current) return [];
     if (!selectedDrawingId) return [];
 
     const drawing = drawings.find((item) => item.id === selectedDrawingId);
-    if (!drawing || drawing.locked) return [];
+    if (!drawing || drawing.locked || !isDrawingVisibleOnTimeframe(drawing)) return [];
 
     return drawing.points
       .map((point, pointIndex) => {
@@ -524,12 +565,12 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
-  }, [activeTool, drawings, projectPoint, selectedDrawingId]);
+  }, [activeTool, drawings, isDrawingVisibleOnTimeframe, projectPoint, selectedDrawingId]);
 
   useEffect(() => {
     renderDrawings();
     bumpOverlay();
-  }, [drawings, selectedDrawingId, renderDrawings, bumpOverlay]);
+  }, [drawings, selectedDrawingId, timeframe, renderDrawings, bumpOverlay]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -565,7 +606,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       if (!drawingId) return;
 
       const drawing = drawingsRef.current.find((item) => item.id === drawingId);
-      if (!drawing || drawing.locked) return;
+      if (!drawing || drawing.locked || !isDrawingVisibleOnTimeframe(drawing)) return;
 
       const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
       if (!anchor) return;
@@ -598,6 +639,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     findHandleAt,
     getCanvasPointFromClient,
     getPointLogical,
+    isDrawingVisibleOnTimeframe,
     syncSelection,
     toLogicalPricePoint,
   ]);

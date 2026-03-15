@@ -11,16 +11,33 @@ export interface Point {
   logical?: number;
 }
 
+export interface FibLevel {
+  value: number;
+  label?: string;
+  color?: string;
+  visible?: boolean;
+  lineStyle?: DrawingLineStyle;
+}
+
 export interface Drawing {
   id: string;
-  type: DrawingTool;
+  type: 'trendline' | 'ray' | 'hline' | 'rect' | 'fib';
   points: Point[];
-  text?: string;
-  color: string;
-  lineWidth: number;
-  lineStyle: DrawingLineStyle;
-  fillOpacity: number;
-  locked: boolean;
+  color?: string;
+  lineWidth?: number;
+  lineStyle?: DrawingLineStyle;
+  fillOpacity?: number;
+  locked?: boolean;
+
+  // show on specific chart timeframes only; empty/undefined = all
+  visibleTimeframes?: number[];
+
+  // fib settings
+  fibReverse?: boolean;
+  fibExtendLeft?: boolean;
+  fibExtendRight?: boolean;
+  fibShowLabels?: boolean;
+  fibLevels?: FibLevel[];
 }
 
 interface ChartState {
