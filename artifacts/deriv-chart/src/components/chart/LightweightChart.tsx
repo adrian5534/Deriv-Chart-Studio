@@ -174,19 +174,20 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   }));
 
   return (
-    <div className="relative h-full w-full overflow-hidden">
-      <div ref={chartContainerRef} className="absolute inset-0" />
+    <div className="relative h-full w-full">
+      <div className="absolute inset-0 overflow-hidden">
+        <div ref={chartContainerRef} className="absolute inset-0" />
 
-      {isReady && chartRef.current && seriesRef.current && (
-        <>
+        {isReady && chartRef.current && seriesRef.current && (
           <DrawingOverlay
             chart={chartRef.current}
             series={seriesRef.current}
             redrawKey={overlayRedrawKey}
           />
-          <DrawingSettingsPanel />
-        </>
-      )}
+        )}
+      </div>
+
+      {isReady && chartRef.current && seriesRef.current && <DrawingSettingsPanel />}
     </div>
   );
 });
