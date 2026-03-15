@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { IChartApi, ISeriesApi, MouseEventParams } from 'lightweight-charts';
+import { IChartApi, ISeriesApi, MouseEventParams, type Logical } from 'lightweight-charts';
 import { useChartStore, Drawing, Point, DrawingLineStyle } from '../../store/use-chart-store';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -180,7 +180,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
     const x =
       xFromTime ??
       (typeof point.logical === 'number'
-        ? chart.timeScale().logicalToCoordinate(point.logical)
+        ? chart.timeScale().logicalToCoordinate(point.logical as Logical)
         : null);
 
     const y = series.priceToCoordinate(point.price);
