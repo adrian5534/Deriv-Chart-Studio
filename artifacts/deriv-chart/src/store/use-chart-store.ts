@@ -19,6 +19,10 @@ export interface FibLevel {
   lineStyle?: DrawingLineStyle;
 }
 
+export type DrawingLabelHorizontalAlign = 'left' | 'center' | 'right';
+export type DrawingLabelVerticalAlign = 'top' | 'middle' | 'bottom';
+export type FibLabelMode = 'percent' | 'price';
+
 export interface Drawing {
   id: string;
   type: 'trendline' | 'ray' | 'hline' | 'rect' | 'fib';
@@ -28,16 +32,18 @@ export interface Drawing {
   lineStyle?: DrawingLineStyle;
   fillOpacity?: number;
   locked?: boolean;
-
-  // show on specific chart timeframes only; empty/undefined = all
   visibleTimeframes?: number[];
 
-  // fib settings
   fibReverse?: boolean;
   fibExtendLeft?: boolean;
   fibExtendRight?: boolean;
   fibShowLabels?: boolean;
   fibLevels?: FibLevel[];
+
+  showPriceLabels?: boolean;
+  fibLabelMode?: FibLabelMode;
+  labelHorizontalAlign?: DrawingLabelHorizontalAlign;
+  labelVerticalAlign?: DrawingLabelVerticalAlign;
 }
 
 interface ChartState {
@@ -117,6 +123,10 @@ function normalizeDrawing(
     lineStyle: drawing.lineStyle || DEFAULT_DRAWING_STYLE.lineStyle,
     fillOpacity: clampFillOpacity(drawing.fillOpacity),
     locked: drawing.locked ?? DEFAULT_DRAWING_STYLE.locked,
+    showPriceLabels: drawing.showPriceLabels ?? drawing.type === 'hline',
+    fibLabelMode: drawing.fibLabelMode ?? 'percent',
+    labelHorizontalAlign: drawing.labelHorizontalAlign ?? 'right',
+    labelVerticalAlign: drawing.labelVerticalAlign ?? 'top',
   };
 }
 

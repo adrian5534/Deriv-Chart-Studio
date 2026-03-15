@@ -1,8 +1,17 @@
 import React from 'react';
-import { DrawingLineStyle, useChartStore } from '../../store/use-chart-store';
+import {
+  DrawingLineStyle,
+  FibLabelMode,
+  DrawingLabelHorizontalAlign,
+  DrawingLabelVerticalAlign,
+  useChartStore,
+} from '../../store/use-chart-store';
 import { TIMEFRAMES } from '../../lib/deriv-constants';
 
 const LINE_STYLES: DrawingLineStyle[] = ['solid', 'dashed', 'dotted'];
+const LABEL_HORIZONTAL_OPTIONS: DrawingLabelHorizontalAlign[] = ['left', 'center', 'right'];
+const LABEL_VERTICAL_OPTIONS: DrawingLabelVerticalAlign[] = ['top', 'middle', 'bottom'];
+const FIB_LABEL_MODES: FibLabelMode[] = ['percent', 'price'];
 
 const TIMEFRAME_OPTIONS = TIMEFRAMES.map((timeframe) => ({
   value: timeframe.value,
@@ -171,6 +180,82 @@ export default function DrawingSettingsPanel() {
         )}
 
         <div className="rounded border border-slate-700 p-3">
+          <div className="mb-2 text-slate-300">Labels</div>
+
+          <label className="mb-2 flex items-center justify-between rounded border border-slate-700 px-3 py-2">
+            <span className="text-slate-300">Show price labels</span>
+            <input
+              type="checkbox"
+              checked={drawing.showPriceLabels ?? (drawing.type === 'hline')}
+              onChange={(event) =>
+                updateSelectedDrawing({ showPriceLabels: event.target.checked })
+              }
+            />
+          </label>
+
+          {supportsFib && (
+            <label className="mb-2 block">
+              <span className="mb-1 block text-slate-300">Fib label content</span>
+              <select
+                value={drawing.fibLabelMode ?? 'percent'}
+                onChange={(event) =>
+                  updateSelectedDrawing({
+                    fibLabelMode: event.target.value as FibLabelMode,
+                  })
+                }
+                className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"
+              >
+                {FIB_LABEL_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="mb-1 block text-slate-300">Horizontal</span>
+              <select
+                value={drawing.labelHorizontalAlign ?? 'right'}
+                onChange={(event) =>
+                  updateSelectedDrawing({
+                    labelHorizontalAlign: event.target.value as DrawingLabelHorizontalAlign,
+                  })
+                }
+                className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"
+              >
+                {LABEL_HORIZONTAL_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-slate-300">Vertical</span>
+              <select
+                value={drawing.labelVerticalAlign ?? 'top'}
+                onChange={(event) =>
+                  updateSelectedDrawing({
+                    labelVerticalAlign: event.target.value as DrawingLabelVerticalAlign,
+                  })
+                }
+                className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"
+              >
+                {LABEL_VERTICAL_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="rounded border border-slate-700 p-3">
           <div className="mb-2 text-slate-300">Visible on timeframes</div>
 
           <label className="mb-3 flex items-center justify-between rounded border border-slate-700 px-3 py-2">
@@ -255,7 +340,7 @@ export default function DrawingSettingsPanel() {
                 </label>
 
                 <label className="flex items-center justify-between rounded border border-slate-700 px-3 py-2">
-                  <span className="text-slate-300">Show labels</span>
+                  <span className="text-slate-300">Show fib labels</span>
                   <input
                     type="checkbox"
                     checked={drawing.fibShowLabels ?? true}

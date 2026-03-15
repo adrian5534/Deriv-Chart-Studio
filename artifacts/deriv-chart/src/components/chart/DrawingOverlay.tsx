@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { IChartApi, ISeriesApi, MouseEventParams, type Logical } from 'lightweight-charts';
-import { useChartStore, Drawing, Point, DrawingLineStyle } from '../../store/use-chart-store';
+import {
+  useChartStore,
+  Drawing,
+  Point,
+  DrawingLineStyle,
+  FibLabelMode,
+  DrawingLabelHorizontalAlign,
+  DrawingLabelVerticalAlign,
+} from '../../store/use-chart-store';
 import { v4 as uuidv4 } from 'uuid';
 
 interface DrawingOverlayProps {
@@ -92,6 +100,55 @@ function getVisibleFibLevels(drawing: Drawing) {
   return configured?.length ? configured : DEFAULT_FIB_LEVELS;
 }
 
+function getHorizontalLabelX(
+  startX: number,
+  endX: number,
+  align: DrawingLabelHorizontalAlign,
+) {
+  if (align === 'left') return startX + 6;
+  if (align === 'center') return (startX + endX) / 2;
+  return endX - 6;
+}
+
+function getVerticalLabelY(y: number, align: DrawingLabelVerticalAlign) {
+  if (align === 'top') return y - 6;
+  if (align === 'middle') return y;
+  return y + 6;
+}
+
+function getVerticalTextBaseline(align: DrawingLabelVerticalAlign): CanvasTextBaseline {
+  if (align === 'top') return 'bottom';
+  if (align === 'middle') return 'middle';
+  return 'top';
+}
+
+function drawTextLabel(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  startX: number,
+  endX: number,
+  y: number,
+  color: string,
+  horizontalAlign: DrawingLabelHorizontalAlign,
+  verticalAlign: DrawingLabelVerticalAlign,
+) {
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.font = '10px monospace';
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.92)';
+  ctx.lineWidth = 3;
+  ctx.textAlign = horizontalAlign === 'center' ? 'center' : horizontalAlign;
+  ctx.textBaseline = getVerticalTextBaseline(verticalAlign);
+
+  const labelX = getHorizontalLabelX(startX, endX, horizontalAlign);
+  const labelY = getVerticalLabelY(y, verticalAlign);
+
+  ctx.strokeText(text, labelX, labelY);
+  ctx.fillText(text, labelX, labelY);
+  ctx.restore();
+}
+
 export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -154,8 +211,12 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   }, []);
 
   const isDrawingVisibleOnTimeframe = useCallback((drawing: Drawing) => {
-    if (!drawing.visibleTimeframes || drawing.visibleTimeframes.length === 0) {
+    if (drawing.visibleTimeframes == null) {
       return true;
+    }
+
+    if (drawing.visibleTimeframes.length === 0) {
+      return false;
     }
 
     return drawing.visibleTimeframes.includes(timeframe);
@@ -166,7 +227,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       return point.logical;
     }
 
-    const x = chart.timeScale().timeToCoordinate(point.time as any);
+    const x = chart.timeScale().timeToCoordinate(point.time as never);
     if (x == null) return null;
 
     const logical = chart.timeScale().coordinateToLogical(x);
@@ -176,7 +237,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
   }, [chart]);
 
   const projectPoint = useCallback((point: Point) => {
-    const xFromTime = chart.timeScale().timeToCoordinate(point.time as any);
+    const xFromTime = chart.timeScale().timeToCoordinate(point.time as never);
     const x =
       xFromTime ??
       (typeof point.logical === 'number'
@@ -409,6 +470,10 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
       const isSelected = drawing.id === selectedDrawingIdRef.current;
       const isHovered = drawing.id === hoveredDrawingIdRef.current;
       const baseLineWidth = drawing.lineWidth || 2;
+      const showPriceLabels = drawing.showPriceLabels ?? drawing.type === 'hline';
+      const labelHorizontalAlign = drawing.labelHorizontalAlign ?? 'right';
+      const labelVerticalAlign = drawing.labelVerticalAlign ?? 'top';
+      const fibLabelMode: FibLabelMode = drawing.fibLabelMode ?? 'percent';
 
       ctx.save();
       ctx.strokeStyle = color;
@@ -456,10 +521,18 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           ctx.lineTo(maxX, y1);
           ctx.stroke();
 
-          ctx.setLineDash([]);
-          ctx.fillStyle = color;
-          ctx.font = '11px monospace';
-          ctx.fillText(drawing.points[0].price.toFixed(4), Math.max(8, maxX - 90), y1 - 6);
+          if (showPriceLabels) {
+            drawTextLabel(
+              ctx,
+              drawing.points[0].price.toFixed(4),
+              0,
+              maxX,
+              y1,
+              color,
+              labelHorizontalAlign,
+              labelVerticalAlign,
+            );
+          }
         }
       } else if (drawing.type === 'rect' && drawing.points.length >= 2) {
         const p1 = projectPoint(drawing.points[0]);
@@ -489,7 +562,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           const maxAnchorX = Math.max(p1.x, p2.x);
           const lineStartX = drawing.fibExtendLeft ? 0 : minX;
           const lineEndX = drawing.fibExtendRight === false ? maxAnchorX : maxX;
-          const showLabels = drawing.fibShowLabels !== false;
+          const showFibLabels = drawing.fibShowLabels !== false;
 
           ctx.beginPath();
           ctx.strokeStyle = color;
@@ -501,6 +574,10 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
           levels.forEach((level) => {
             const y = p1.y + diff * level.value;
             const priceAtLevel = fromPoint.price + priceDiff * level.value;
+            const labelText =
+              fibLabelMode === 'price'
+                ? priceAtLevel.toFixed(4)
+                : level.label || `${(level.value * 100).toFixed(1)}%`;
 
             ctx.beginPath();
             ctx.strokeStyle = level.color || color;
@@ -510,18 +587,38 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
             ctx.lineTo(lineEndX, y);
             ctx.stroke();
 
-            if (showLabels) {
-              ctx.setLineDash([]);
-              ctx.fillStyle = level.color || color;
-              ctx.font = '10px monospace';
-              ctx.fillText(
-                `${level.label || `${(level.value * 100).toFixed(1)}%`} — ${priceAtLevel.toFixed(4)}`,
-                Math.max(4, lineStartX + 4),
-                y - 4,
+            if (showFibLabels) {
+              drawTextLabel(
+                ctx,
+                labelText,
+                lineStartX,
+                lineEndX,
+                y,
+                level.color || color,
+                labelHorizontalAlign,
+                labelVerticalAlign,
               );
             }
           });
         }
+      }
+
+      if (showPriceLabels && drawing.type !== 'hline') {
+        drawing.points.forEach((point) => {
+          const coords = projectPoint(point);
+          if (!coords) return;
+
+          drawTextLabel(
+            ctx,
+            point.price.toFixed(4),
+            coords.x - 36,
+            coords.x + 36,
+            coords.y,
+            color,
+            labelHorizontalAlign,
+            labelVerticalAlign,
+          );
+        });
       }
 
       if (isHovered && !isSelected && !drawing.locked) {
