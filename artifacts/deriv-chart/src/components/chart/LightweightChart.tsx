@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { createChart, IChartApi, ISeriesApi, ColorType } from 'lightweight-charts';
 import { useChartStore } from '../../store/use-chart-store';
 import { useDerivWebSocket, CandleData } from '../../hooks/use-deriv-websocket';
@@ -18,6 +18,11 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   const replayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [isReady, setIsReady] = useState(false);
+  const [overlayRedrawKey, setOverlayRedrawKey] = useState(0);
+
+  const bumpOverlayRedraw = useCallback(() => {
+    setOverlayRedrawKey((value) => value + 1);
+  }, []);
 
   const replayActive = useChartStore((state) => state.replay.active);
   const replayPlaying = useChartStore((state) => state.replay.playing);
@@ -68,6 +73,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     chartRef.current = chart;
     seriesRef.current = candleSeries;
     setIsReady(true);
+    bumpOverlayRedraw();
 
     return () => {
       if (replayTimerRef.current) {
@@ -79,7 +85,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       seriesRef.current = null;
       setIsReady(false);
     };
-  }, []);
+  }, [bumpOverlayRedraw]);
 
   const { loadReplayCandles } = useDerivWebSocket({
     onHistoricalData: (data) => {
@@ -92,6 +98,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
       try {
         seriesRef.current.setData(sorted);
+        requestAnimationFrame(() => bumpOverlayRedraw());
       } catch {
         // ignore
       }
@@ -103,6 +110,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
       try {
         seriesRef.current.update(data);
+        requestAnimationFrame(() => bumpOverlayRedraw());
       } catch {
         // ignore
       }
@@ -121,6 +129,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
     try {
       seriesRef.current.setData(replayCandles.slice(0, Math.max(1, index + 1)));
+      requestAnimationFrame(() => bumpOverlayRedraw());
     } catch {
       // ignore
     }
@@ -142,6 +151,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
       try {
         seriesRef.current.setData(replay.candles.slice(0, nextIndex + 1));
+        requestAnimationFrame(() => bumpOverlayRedraw());
       } catch {
         // ignore
       }
@@ -155,7 +165,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
         replayTimerRef.current = null;
       }
     };
-  }, [replayActive, replayPlaying, replaySpeed, replayCandles, setReplayState]);
+  }, [replayActive, replayPlaying, replaySpeed, replayCandles, setReplayState, bumpOverlayRedraw]);
 
   useImperativeHandle(ref, () => ({
     getChart: () => chartRef.current,
@@ -169,7 +179,11 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
       {isReady && chartRef.current && seriesRef.current && (
         <>
-          <DrawingOverlay chart={chartRef.current} series={seriesRef.current} />
+          <DrawingOverlay
+            chart={chartRef.current}
+            series={seriesRef.current}
+            redrawKey={overlayRedrawKey}
+          />
           <DrawingSettingsPanel />
         </>
       )}

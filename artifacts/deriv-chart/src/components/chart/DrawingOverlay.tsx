@@ -14,6 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 interface DrawingOverlayProps {
   chart: IChartApi;
   series: ISeriesApi<'Candlestick'>;
+  redrawKey: number;
 }
 
 type DragHandleState = {
@@ -149,7 +150,7 @@ function drawTextLabel(
   ctx.restore();
 }
 
-export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
+export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -167,7 +168,7 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
 
   const [draggingHandle, setDraggingHandle] = useState<DragHandleState>(null);
   const [draggingDrawing, setDraggingDrawing] = useState<DragDrawingState>(null);
-  const [, forceRefresh] = useState(0);
+  const [overlayTick, forceRefresh] = useState(0);
 
   const syncSelection = useCallback((id: string | null) => {
     selectedDrawingIdRef.current = id;
@@ -662,12 +663,39 @@ export default function DrawingOverlay({ chart, series }: DrawingOverlayProps) {
         };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
-  }, [activeTool, drawings, isDrawingVisibleOnTimeframe, projectPoint, selectedDrawingId]);
+  }, [
+    activeTool,
+    drawings,
+    isDrawingVisibleOnTimeframe,
+    overlayTick,
+    projectPoint,
+    selectedDrawingId,
+  ]);
 
   useEffect(() => {
     renderDrawings();
     bumpOverlay();
   }, [drawings, selectedDrawingId, timeframe, renderDrawings, bumpOverlay]);
+
+  useEffect(() => {
+    let frame1 = 0;
+    let frame2 = 0;
+
+    frame1 = window.requestAnimationFrame(() => {
+      renderDrawings();
+      bumpOverlay();
+
+      frame2 = window.requestAnimationFrame(() => {
+        renderDrawings();
+        bumpOverlay();
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame1);
+      window.cancelAnimationFrame(frame2);
+    };
+  }, [redrawKey, renderDrawings, bumpOverlay]);
 
   useEffect(() => {
     const container = containerRef.current;
