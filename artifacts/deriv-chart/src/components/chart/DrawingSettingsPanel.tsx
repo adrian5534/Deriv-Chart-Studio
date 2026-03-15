@@ -1,18 +1,13 @@
 import React from 'react';
 import { DrawingLineStyle, useChartStore } from '../../store/use-chart-store';
+import { TIMEFRAMES } from '../../lib/deriv-constants';
 
 const LINE_STYLES: DrawingLineStyle[] = ['solid', 'dashed', 'dotted'];
 
-const TIMEFRAME_OPTIONS = [
-  { value: 60, label: '1m' },
-  { value: 300, label: '5m' },
-  { value: 900, label: '15m' },
-  { value: 1800, label: '30m' },
-  { value: 3600, label: '1h' },
-  { value: 14400, label: '4h' },
-  { value: 86400, label: '1D' },
-  { value: 604800, label: '1W' },
-];
+const TIMEFRAME_OPTIONS = TIMEFRAMES.map((timeframe) => ({
+  value: timeframe.value,
+  label: timeframe.label,
+}));
 
 const DEFAULT_FIB_LEVELS = [
   { value: 0, label: '0.0%', color: '#ef5350', visible: true, lineStyle: 'solid' as DrawingLineStyle },
@@ -57,19 +52,20 @@ export default function DrawingSettingsPanel() {
   const supportsFill = drawing.type === 'rect';
   const supportsFib = drawing.type === 'fib';
   const visibleTimeframes = drawing.visibleTimeframes ?? [];
-  const showOnAllTimeframes = visibleTimeframes.length === 0;
+  const showOnAllTimeframes = drawing.visibleTimeframes == null;
   const fibLevels =
     drawing.fibLevels && drawing.fibLevels.length > 0
       ? drawing.fibLevels
       : DEFAULT_FIB_LEVELS;
 
   const toggleTimeframe = (timeframe: number) => {
-    const next = visibleTimeframes.includes(timeframe)
-      ? visibleTimeframes.filter((item) => item !== timeframe)
-      : [...visibleTimeframes, timeframe].sort((a, b) => a - b);
+    const base = drawing.visibleTimeframes ?? [];
+    const next = base.includes(timeframe)
+      ? base.filter((item) => item !== timeframe)
+      : [...base, timeframe].sort((a, b) => a - b);
 
     updateSelectedDrawing({
-      visibleTimeframes: next.length ? next : undefined,
+      visibleTimeframes: next,
     });
   };
 
