@@ -176,11 +176,11 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
 
       wsRef.current.addEventListener('message', handler);
 
-      // Request 2500 candles ending at the selected replay date (no subscribe)
+      // Request 10000 candles ending at the selected replay date (no subscribe)
       wsRef.current.send(JSON.stringify({
         ticks_history: symbol,
         adjust_start_time: 1,
-        count: 2500,
+        count: 10000, // fetch up to 10k candles to ensure we get enough data even for low timeframes
         end: endEpoch,
         style: 'candles',
         granularity: timeframe,
