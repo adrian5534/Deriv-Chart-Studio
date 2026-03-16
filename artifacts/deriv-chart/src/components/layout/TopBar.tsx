@@ -34,7 +34,7 @@ export default function TopBar({ chartRef }: TopBarProps) {
 
   const selectedAsset = ASSETS.find(a => a.symbol === symbol);
 
-  // --- Enable timeframe switching in replay mode, align to replay start date ---
+  // --- Keep replay progress the same when switching timeframes ---
   useEffect(() => {
     if (!replay.active) return;
     if (!chartRef.current) return;
@@ -44,13 +44,15 @@ export default function TopBar({ chartRef }: TopBarProps) {
       chartRef.current.loadReplayCandles(replay.date).then((candles) => {
         if (cancelled) return;
         if (!candles.length) return;
-        // Find the index of the first candle >= replay start date
-        const replayStartEpoch = Math.floor(new Date(replay.date!).getTime() / 1000);
-        const startIdx = candles.findIndex(c => c.time >= replayStartEpoch);
+        // Keep the same progress ratio
+        const prevLen = replay.candles.length;
+        const prevIdx = replay.index;
+        const progress = prevLen > 1 ? prevIdx / (prevLen - 1) : 0;
+        const newIdx = Math.round(progress * (candles.length - 1));
         setReplayState({
           ...replay,
           candles,
-          index: Math.max(0, startIdx),
+          index: Math.max(0, newIdx),
         });
       });
     }
@@ -60,7 +62,7 @@ export default function TopBar({ chartRef }: TopBarProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe]);
-  // ---------------------------------------------------------------------------
+  // ----------------------------------------------------------------
 
   const handleStartReplay = async () => {
     if (!chartRef.current) return;
@@ -72,15 +74,12 @@ export default function TopBar({ chartRef }: TopBarProps) {
         setIsLoadingReplay(false);
         return;
       }
-      // Find the index of the first candle >= replay start date
-      const replayStartEpoch = Math.floor(new Date(replayDate).getTime() / 1000);
-      const startIdx = candles.findIndex(c => c.time >= replayStartEpoch);
       setReplayState({
         active: true,
         date: replayDate,
         playing: false,
         candles,
-        index: Math.max(0, startIdx),
+        index: 0,
       });
       setReplayDialogOpen(false);
     } finally {
