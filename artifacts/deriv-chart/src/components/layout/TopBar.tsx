@@ -74,7 +74,7 @@ export default function TopBar({ chartRef }: TopBarProps) {
         date: replayDate,
         playing: false,
         candles,
-        index: Math.min(10, candles.length - 1), // start 50 candles in so there's something to see
+        index: Math.min(15, candles.length - 1), // start 50 candles in so there's something to see
       });
       setReplayDialogOpen(false);
     } finally {
