@@ -34,7 +34,7 @@ export default function TopBar({ chartRef }: TopBarProps) {
 
   const selectedAsset = ASSETS.find(a => a.symbol === symbol);
 
-  // --- Enable timeframe switching in replay mode ---
+  // --- Enable timeframe switching in replay mode, align to replay start date ---
   useEffect(() => {
     if (!replay.active) return;
     if (!chartRef.current) return;
@@ -44,10 +44,13 @@ export default function TopBar({ chartRef }: TopBarProps) {
       chartRef.current.loadReplayCandles(replay.date).then((candles) => {
         if (cancelled) return;
         if (!candles.length) return;
+        // Find the index of the first candle >= replay start date
+        const replayStartEpoch = Math.floor(new Date(replay.date!).getTime() / 1000);
+        const startIdx = candles.findIndex(c => c.time >= replayStartEpoch);
         setReplayState({
           ...replay,
           candles,
-          index: Math.min(50, candles.length - 1),
+          index: Math.max(0, startIdx),
         });
       });
     }
@@ -57,7 +60,7 @@ export default function TopBar({ chartRef }: TopBarProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe]);
-  // -------------------------------------------------
+  // ---------------------------------------------------------------------------
 
   const handleStartReplay = async () => {
     if (!chartRef.current) return;
@@ -69,12 +72,15 @@ export default function TopBar({ chartRef }: TopBarProps) {
         setIsLoadingReplay(false);
         return;
       }
+      // Find the index of the first candle >= replay start date
+      const replayStartEpoch = Math.floor(new Date(replayDate).getTime() / 1000);
+      const startIdx = candles.findIndex(c => c.time >= replayStartEpoch);
       setReplayState({
         active: true,
         date: replayDate,
         playing: false,
         candles,
-        index: Math.min(10, candles.length - 1), // start 50 candles in so there's something to see
+        index: Math.max(0, startIdx),
       });
       setReplayDialogOpen(false);
     } finally {
