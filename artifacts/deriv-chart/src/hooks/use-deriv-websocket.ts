@@ -143,16 +143,20 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
     }
   }, [symbol, timeframe]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const reqCounterRef = useRef(10000);
-
-  // helper to send a history request and wait for matching response
-  const sendHistoryRequest = useCallback((startEpoch: number, endEpoch: number, granularity: number, timeout = 8000): Promise<CandleData[]> => {
+  // Load a batch of historical candles for chart replay mode
+  // Returns them via the onHistoricalData callback without subscribing
+  const loadReplayCandles = useCallback((date: string): Promise<CandleData[]> => {
     return new Promise((resolve) => {
       if (wsRef.current?.readyState !== WebSocket.OPEN) {
         resolve([]);
         return;
       }
-      const reqId = ++reqCounterRef.current;
+
+      const startEpoch = Math.floor(new Date(date).getTime() / 1000);
+      const endEpoch = Math.floor(Date.now() / 1000); // or use latest available
+
+      const reqId = 9999;
+
       const handler = (msg: MessageEvent) => {
         try {
           const data = JSON.parse(msg.data);
@@ -180,73 +184,16 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
         start: startEpoch,
         end: endEpoch,
         style: 'candles',
-        granularity,
+        granularity: timeframe,
         req_id: reqId,
       }));
 
       setTimeout(() => {
         wsRef.current?.removeEventListener('message', handler);
         resolve([]);
-      }, timeout);
+      }, 8000);
     });
-  }, [symbol]);
-
-  // aggregate 1m candles up to targetSeconds timeframe
-  const aggregateCandles = useCallback((lowRes: CandleData[], targetSeconds: number): CandleData[] => {
-    if (!lowRes.length) return [];
-    const map = new Map<number, CandleData>();
-    for (const c of lowRes) {
-      const bucket = Math.floor(Number(c.time) / targetSeconds) * targetSeconds;
-      const existing = map.get(bucket);
-      if (!existing) {
-        map.set(bucket, { time: bucket as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close });
-      } else {
-        existing.high = Math.max(existing.high, c.high);
-        existing.low = Math.min(existing.low, c.low);
-        existing.close = c.close;
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => Number(a.time) - Number(b.time));
-  }, []);
-
-  // Load a batch of historical candles for chart replay mode
-  // Returns them via the onHistoricalData callback without subscribing
-  const loadReplayCandles = useCallback(async (date: string): Promise<CandleData[]> => {
-    if (wsRef.current?.readyState !== WebSocket.OPEN) {
-      return [];
-    }
-
-    const startEpoch = Math.floor(new Date(date).getTime() / 1000);
-    const endEpoch = Math.floor(Date.now() / 1000);
-
-    // 1) try direct timeframe first
-    const primary = await sendHistoryRequest(startEpoch, endEpoch, timeframe);
-    if (primary.length) {
-      // if primary covers the requested start -> good
-      const earliest = primary.reduce((min, c) => (Number(c.time) < Number(min.time) ? c : min), primary[0]);
-      if (Number(earliest.time) <= startEpoch) {
-        return primary.sort((a, b) => Number(a.time) - Number(b.time));
-      }
-      // else fall through to try high-res aggregation
-    }
-
-    // 2) attempt to fetch 1m data and aggregate to target timeframe (helps when small-TF returns limited pages)
-    const MIN_GRANULARITY = 60;
-    if (timeframe !== MIN_GRANULARITY) {
-      const lowRes = await sendHistoryRequest(startEpoch, endEpoch, MIN_GRANULARITY);
-      if (lowRes.length) {
-        const aggregated = aggregateCandles(lowRes, timeframe);
-        // filter to requested startEpoch (defensive)
-        const filtered = aggregated.filter(c => Number(c.time) >= startEpoch);
-        if (filtered.length) {
-          return filtered;
-        }
-      }
-    }
-
-    // 3) fallback: return whatever primary gave (maybe empty)
-    return primary.sort((a, b) => Number(a.time) - Number(b.time));
-  }, [sendHistoryRequest, aggregateCandles, timeframe]);
+  }, [symbol, timeframe]);
 
   return { loadReplayCandles };
 }
