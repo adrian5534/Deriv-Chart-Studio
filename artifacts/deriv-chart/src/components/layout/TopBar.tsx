@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ASSETS, TIMEFRAMES } from '../../lib/deriv-constants';
 import { useChartStore } from '../../store/use-chart-store';
@@ -33,6 +33,29 @@ export default function TopBar({ chartRef }: TopBarProps) {
   const [isLoadingReplay, setIsLoadingReplay] = useState(false);
 
   const selectedAsset = ASSETS.find(a => a.symbol === symbol);
+
+  // --- Enable timeframe switching in replay mode ---
+  useEffect(() => {
+    if (!replay.active) return;
+    if (!chartRef.current) return;
+    let cancelled = false;
+
+    chartRef.current.loadReplayCandles(replay.date).then((candles) => {
+      if (cancelled) return;
+      if (!candles.length) return;
+      setReplayState({
+        ...replay,
+        candles,
+        index: Math.min(50, candles.length - 1),
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeframe]);
+  // -------------------------------------------------
 
   const handleStartReplay = async () => {
     if (!chartRef.current) return;
