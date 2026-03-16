@@ -94,22 +94,6 @@ interface ChartState {
   stopReplay: () => void;
 }
 
-// Minimal additions: store persistent drawings in your global chart store
-export interface SerializedDrawing {
-  id?: string;
-  type: string;
-  points: { time: number; price: number }[];
-  meta?: any;
-}
-
-type ChartStore = {
-  // ...existing state...
-  drawings: SerializedDrawing[];
-  setDrawings: (d: SerializedDrawing[]) => void;
-  addDrawing: (d: SerializedDrawing) => void;
-  clearDrawings: () => void;
-};
-
 const DEFAULT_DRAWING_STYLE = {
   color: '#2962FF',
   lineWidth: 2,

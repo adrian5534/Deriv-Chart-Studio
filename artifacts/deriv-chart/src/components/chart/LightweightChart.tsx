@@ -217,51 +217,6 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     loadReplayCandles,
   }));
 
-  // Add helpers to preserve visible range + reapply drawings around any setData call
-
-  function serializeDrawings(chart: any) {
-    // replace with your drawing API access; goal: produce serializable points {time, price, id, meta}
-    const out: any[] = [];
-    const drawingItems = chart.getAllDrawings?.() ?? []; // hypothetical API — adapt to your drawing implementation
-    for (const d of drawingItems) {
-      out.push({
-        id: d.id,
-        type: d.type,
-        points: d.points.map((p: any) => ({ time: Number(p.time), price: p.price })),
-        meta: d.meta,
-      });
-    }
-    return out;
-  }
-
-  function reapplyDrawings(chart: any, drawings: any[]) {
-    if (!drawings?.length) return;
-    for (const d of drawings) {
-      // adapt to how you add drawings; using a generic API below:
-      chart.createDrawing?.(d.type, d.points.map((p: any) => ({ time: p.time, price: p.price })), d.meta);
-    }
-  }
-
-  // use these around any data replacement
-  async function replaceSeriesDataSafely(chart: any, series: any, newData: any[]) {
-    // capture visible time range
-    const vis = chart.timeScale().getVisibleRange?.();
-    // capture drawings (serialize)
-    const savedDrawings = serializeDrawings(chart);
-
-    // replace data
-    series.setData(newData);
-
-    // restore visible range (defensive: wait microtask to let chart apply data)
-    requestAnimationFrame(() => {
-      if (vis && chart.timeScale().setVisibleRange) {
-        chart.timeScale().setVisibleRange({ from: vis.from, to: vis.to });
-      }
-      // reapply drawings
-      reapplyDrawings(chart, savedDrawings);
-    });
-  }
-
   return (
     <div className="relative h-full w-full">
       <div className="absolute inset-0 overflow-hidden">
