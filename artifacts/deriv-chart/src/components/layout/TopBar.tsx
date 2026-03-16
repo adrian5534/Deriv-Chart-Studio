@@ -34,7 +34,7 @@ export default function TopBar({ chartRef }: TopBarProps) {
 
   const selectedAsset = ASSETS.find(a => a.symbol === symbol);
 
-  // --- Keep replay progress the same when switching timeframes ---
+  // --- Enable timeframe switching in replay mode ---
   useEffect(() => {
     if (!replay.active) return;
     if (!chartRef.current) return;
@@ -44,15 +44,10 @@ export default function TopBar({ chartRef }: TopBarProps) {
       chartRef.current.loadReplayCandles(replay.date).then((candles) => {
         if (cancelled) return;
         if (!candles.length) return;
-        // Keep the same progress ratio
-        const prevLen = replay.candles.length;
-        const prevIdx = replay.index;
-        const progress = prevLen > 1 ? prevIdx / (prevLen - 1) : 0;
-        const newIdx = Math.round(progress * (candles.length - 1));
         setReplayState({
           ...replay,
           candles,
-          index: Math.max(0, newIdx),
+          index: Math.min(50, candles.length - 1),
         });
       });
     }
@@ -62,7 +57,7 @@ export default function TopBar({ chartRef }: TopBarProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe]);
-  // ----------------------------------------------------------------
+  // -------------------------------------------------
 
   const handleStartReplay = async () => {
     if (!chartRef.current) return;
@@ -79,7 +74,7 @@ export default function TopBar({ chartRef }: TopBarProps) {
         date: replayDate,
         playing: false,
         candles,
-        index: 0,
+        index: Math.min(10, candles.length - 1), // start 50 candles in so there's something to see
       });
       setReplayDialogOpen(false);
     } finally {
