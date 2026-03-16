@@ -40,15 +40,17 @@ export default function TopBar({ chartRef }: TopBarProps) {
     if (!chartRef.current) return;
     let cancelled = false;
 
-    chartRef.current.loadReplayCandles(replay.date).then((candles) => {
-      if (cancelled) return;
-      if (!candles.length) return;
-      setReplayState({
-        ...replay,
-        candles,
-        index: Math.min(50, candles.length - 1),
+    if (replay.date) {
+      chartRef.current.loadReplayCandles(replay.date).then((candles) => {
+        if (cancelled) return;
+        if (!candles.length) return;
+        setReplayState({
+          ...replay,
+          candles,
+          index: Math.min(50, candles.length - 1),
+        });
       });
-    });
+    }
 
     return () => {
       cancelled = true;
