@@ -152,7 +152,9 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
         return;
       }
 
-      const endEpoch = Math.floor(new Date(date).getTime() / 1000);
+      const startEpoch = Math.floor(new Date(date).getTime() / 1000);
+      const endEpoch = Math.floor(Date.now() / 1000); // or use latest available
+
       const reqId = 9999;
 
       const handler = (msg: MessageEvent) => {
@@ -176,18 +178,16 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
 
       wsRef.current.addEventListener('message', handler);
 
-      // Request 10000 candles ending at the selected replay date (no subscribe)
       wsRef.current.send(JSON.stringify({
         ticks_history: symbol,
         adjust_start_time: 1,
-        count: 10000, // fetch up to 10k candles to ensure we get enough data even for low timeframes
+        start: startEpoch,
         end: endEpoch,
         style: 'candles',
         granularity: timeframe,
         req_id: reqId,
       }));
 
-      // Timeout after 8s
       setTimeout(() => {
         wsRef.current?.removeEventListener('message', handler);
         resolve([]);
