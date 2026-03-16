@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallback } from 'react';
-import { createChart, IChartApi, ISeriesApi, ColorType } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, ColorType, LogicalRange } from 'lightweight-charts';
 import { useChartStore } from '../../store/use-chart-store';
 import { useDerivWebSocket, CandleData } from '../../hooks/use-deriv-websocket';
 import DrawingOverlay from './DrawingOverlay';
@@ -20,6 +20,12 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   const [isReady, setIsReady] = useState(false);
   const [overlayRedrawKey, setOverlayRedrawKey] = useState(0);
 
+  // --- Multi-timeframe replay alignment ---
+  const [pendingRange, setPendingRange] = useState<{from: number, to: number} | null>(null);
+  const prevReplayActive = useRef(false);
+  const prevTimeframe = useRef<string | null>(null);
+  // ----------------------------------------
+
   const bumpOverlayRedraw = useCallback(() => {
     setOverlayRedrawKey((value) => value + 1);
   }, []);
@@ -29,6 +35,44 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   const replaySpeed = useChartStore((state) => state.replay.speed);
   const replayCandles = useChartStore((state) => state.replay.candles);
   const setReplayState = useChartStore((state) => state.setReplayState);
+  const timeframe = useChartStore((state) => state.timeframe);
+
+  // Save visible time range before timeframe changes in replay mode
+  useEffect(() => {
+    if (!replayActive || !chartRef.current || !seriesRef.current) {
+      prevTimeframe.current = String(timeframe);
+      return;
+    }
+    if (prevTimeframe.current && prevTimeframe.current !== String(timeframe)) {
+      // Timeframe changed in replay mode
+      const range = chartRef.current.timeScale().getVisibleLogicalRange();
+      if (range && seriesRef.current) {
+        const data = seriesRef.current.data();
+        const fromIdx = Math.max(Math.floor(range.from), 0);
+        const toIdx = Math.min(Math.ceil(range.to), data.length - 1);
+        const fromTime = data[fromIdx]?.time;
+        const toTime = data[toIdx]?.time;
+        if (fromTime && toTime) {
+          setPendingRange({ from: fromTime as number, to: toTime as number });
+        }
+      }
+    }
+    prevTimeframe.current = String(timeframe);
+  }, [timeframe, replayActive]);
+
+  // After candles are loaded for new timeframe, set visible range to match previous timestamps
+  useEffect(() => {
+    if (!pendingRange || !chartRef.current || !seriesRef.current) return;
+    const data = seriesRef.current.data();
+    if (!data.length) return;
+    // Find logical bars for these timestamps
+    const fromIdx = data.findIndex(bar => Number(bar.time) >= pendingRange.from);
+    const toIdx = data.findIndex(bar => Number(bar.time) >= pendingRange.to);
+    if (fromIdx !== -1 && toIdx !== -1) {
+      chartRef.current.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+    }
+    setPendingRange(null);
+  }, [pendingRange, replayCandles]);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
