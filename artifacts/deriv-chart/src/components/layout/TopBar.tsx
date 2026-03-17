@@ -44,11 +44,29 @@ export default function TopBar({ chartRef }: TopBarProps) {
       chartRef.current.loadReplayCandles(replay.date).then((candles) => {
         if (cancelled) return;
         if (!candles.length) return;
-        setReplayState({
-          ...replay,
-          candles,
-          index: Math.min(50, candles.length - 1),
-        });
+
+        // Preserve relative progress across timeframes:
+        // If we already have replay.candles and an index, compute progress ratio and map it to new candles length.
+        // Otherwise fall back to the same small initial offset used when starting the replay.
+        const prevLen = (replay.candles?.length) ?? 0;
+        const prevIdx = typeof replay.index === 'number' ? replay.index : Math.min(5, prevLen - 1);
+        const fallbackStart = Math.min(5, candles.length - 1);
+
+        if (prevLen > 1 && prevIdx >= 0) {
+          const progress = prevLen > 1 ? prevIdx / (prevLen - 1) : 0;
+          const newIdx = Math.round(progress * Math.max(0, candles.length - 1));
+          setReplayState({
+            ...replay,
+            candles,
+            index: Math.max(0, Math.min(candles.length - 1, newIdx)),
+          });
+        } else {
+          setReplayState({
+            ...replay,
+            candles,
+            index: fallbackStart,
+          });
+        }
       });
     }
 
@@ -74,7 +92,7 @@ export default function TopBar({ chartRef }: TopBarProps) {
         date: replayDate,
         playing: false,
         candles,
-        index: Math.min(5, candles.length - 1), // start 50 candles in so there's something to see
+        index: Math.min(5, candles.length - 1), // start a small offset so there's something visible
       });
       setReplayDialogOpen(false);
     } finally {
