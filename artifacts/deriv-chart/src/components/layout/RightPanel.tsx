@@ -14,6 +14,7 @@ import { useChartStore } from '../../store/use-chart-store';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { format } from 'date-fns';
+import RiskRewardTool from '../chart/RiskRewardTool';
 
 const RIGHT_PANEL_STORAGE_KEY = 'deriv-chart:right-panel-collapsed';
 
@@ -145,6 +146,11 @@ export default function RightPanel() {
                 <ChevronRight size={16} />
               </button>
             </div>
+          </div>
+
+          {/* Risk:Reward tool placed under header */}
+          <div className="p-4 border-b border-border">
+            <RiskRewardTool />
           </div>
 
           <ScrollArea className="flex-1 p-4">

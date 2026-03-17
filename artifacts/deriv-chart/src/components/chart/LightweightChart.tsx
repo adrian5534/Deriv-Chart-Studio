@@ -4,6 +4,7 @@ import { useChartStore } from '../../store/use-chart-store';
 import { useDerivWebSocket, CandleData } from '../../hooks/use-deriv-websocket';
 import DrawingOverlay from './DrawingOverlay';
 import DrawingSettingsPanel from './DrawingSettingsPanel';
+import RiskRewardTool from './RiskRewardTool';
 
 export interface ChartRef {
   getChart: () => IChartApi | null;
@@ -24,6 +25,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   const [pendingRange, setPendingRange] = useState<{from: number, to: number} | null>(null);
   const prevReplayActive = useRef(false);
   const prevTimeframe = useRef<string | null>(null);
+  const prevReplayCandlesRef = useRef<CandleData[] | null>(null);
   // ----------------------------------------
 
   const bumpOverlayRedraw = useCallback(() => {
@@ -211,6 +213,60 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     };
   }, [replayActive, replayPlaying, replaySpeed, replayCandles, setReplayState, bumpOverlayRedraw]);
 
+  // Ensure replay progress maps to new timeframe candles (prevent progress reset)
+  useEffect(() => {
+    if (!replayActive) {
+      prevReplayCandlesRef.current = null;
+      return;
+    }
+    // run only when replayCandles array reference changes (new TF loaded)
+    if (prevReplayCandlesRef.current === replayCandles) return;
+    prevReplayCandlesRef.current = replayCandles;
+
+    if (!replayCandles || !replayCandles.length) return;
+
+    const storeReplay = useChartStore.getState().replay as any;
+    const startEpoch = typeof storeReplay.startEpoch === 'number' ? storeReplay.startEpoch : undefined;
+    const startProgress = typeof storeReplay.startProgress === 'number' ? storeReplay.startProgress : undefined;
+    const prevIdx = typeof storeReplay.index === 'number' ? storeReplay.index : undefined;
+    const prevLen = Array.isArray(storeReplay.candles) ? storeReplay.candles.length : 0;
+
+    let mappedIndex = 0;
+    // Prefer aligning to absolute startEpoch if available
+    if (typeof startEpoch === 'number') {
+      const startIdx = replayCandles.findIndex(c => Number(c.time) >= startEpoch);
+      if (startIdx >= 0) {
+        mappedIndex = Math.max(0, Math.min(replayCandles.length - 1, startIdx));
+      } else if (typeof startProgress === 'number') {
+        mappedIndex = Math.round(startProgress * Math.max(0, replayCandles.length - 1));
+      } else if (typeof prevIdx === 'number' && prevLen > 1) {
+        // fallback: preserve relative progress ratio from previous TF
+        const progress = prevLen > 1 ? prevIdx / (prevLen - 1) : 0;
+        mappedIndex = Math.round(progress * Math.max(0, replayCandles.length - 1));
+      } else {
+        mappedIndex = Math.min(5, replayCandles.length - 1);
+      }
+    } else if (typeof startProgress === 'number') {
+      mappedIndex = Math.round(startProgress * Math.max(0, replayCandles.length - 1));
+    } else if (typeof prevIdx === 'number' && prevLen > 1) {
+      const progress = prevLen > 1 ? prevIdx / (prevLen - 1) : 0;
+      mappedIndex = Math.round(progress * Math.max(0, replayCandles.length - 1));
+    } else {
+      mappedIndex = Math.min(5, replayCandles.length - 1);
+    }
+
+    // Only update store if index actually differs (avoid loops)
+    if (mappedIndex !== storeReplay.index || storeReplay.candles !== replayCandles) {
+      setReplayState({
+        ...storeReplay,
+        candles: replayCandles,
+        index: mappedIndex,
+      });
+    }
+  // intentionally only depends on replayCandles and replayActive
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replayCandles, replayActive]);
+
   useImperativeHandle(ref, () => ({
     getChart: () => chartRef.current,
     getSeries: () => seriesRef.current,
@@ -231,7 +287,14 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
         )}
       </div>
 
-      {isReady && chartRef.current && seriesRef.current && <DrawingSettingsPanel />}
+      {isReady && chartRef.current && seriesRef.current && (
+        <>
+          <DrawingSettingsPanel />
+          <div className="absolute top-4 right-4 z-30">
+            <RiskRewardTool chart={chartRef.current} series={seriesRef.current} />
+          </div>
+        </>
+      )}
     </div>
   );
 });
