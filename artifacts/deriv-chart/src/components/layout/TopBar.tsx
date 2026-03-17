@@ -45,9 +45,25 @@ export default function TopBar({ chartRef }: TopBarProps) {
         if (cancelled) return;
         if (!candles.length) return;
 
-        // Preserve relative progress across timeframes:
-        // If we already have replay.candles and an index, compute progress ratio and map it to new candles length.
-        // Otherwise fall back to the same small initial offset used when starting the replay.
+        // Prefer aligning to the original replay start epoch (keeps same absolute dates).
+        // If startEpoch is not available, fall back to preserving progress ratio.
+        const startEpoch = typeof (replay as any).startEpoch === 'number'
+          ? (replay as any).startEpoch
+          : (replay.date ? Math.floor(new Date(replay.date).getTime() / 1000) : undefined);
+
+        if (typeof startEpoch === 'number') {
+          const startIdx = candles.findIndex(c => Number(c.time) >= startEpoch);
+          if (startIdx >= 0) {
+            setReplayState({
+              ...replay,
+              candles,
+              index: Math.max(0, Math.min(candles.length - 1, startIdx)),
+            });
+            return;
+          }
+          // if not found, fallthrough to progress mapping
+        }
+
         const prevLen = (replay.candles?.length) ?? 0;
         const prevIdx = typeof replay.index === 'number' ? replay.index : Math.min(5, prevLen - 1);
         const fallbackStart = Math.min(5, candles.length - 1);
@@ -87,13 +103,20 @@ export default function TopBar({ chartRef }: TopBarProps) {
         setIsLoadingReplay(false);
         return;
       }
+
+      const startEpoch = Math.floor(new Date(replayDate).getTime() / 1000);
+      const initialIndex = Math.min(5, candles.length - 1); // same small offset as before
+      const startProgress = candles.length > 1 ? initialIndex / (candles.length - 1) : 0;
+
       setReplayState({
         active: true,
         date: replayDate,
         playing: false,
         candles,
-        index: Math.min(5, candles.length - 1), // start a small offset so there's something visible
-      });
+        index: initialIndex,
+        startEpoch,     // persisted so other timeframes can align to the same absolute start
+        startProgress,  // fallback progress mapping if exact epoch doesn't exist in new TF
+      } as any);
       setReplayDialogOpen(false);
     } finally {
       setIsLoadingReplay(false);
