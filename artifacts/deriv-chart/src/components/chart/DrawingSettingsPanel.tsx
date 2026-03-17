@@ -60,11 +60,14 @@ export default function DrawingSettingsPanel() {
 
   const supportsFill = drawing.type === 'rect';
   const supportsFib = drawing.type === 'fib';
+  const supportsRR = drawing.type === 'rr';
   const visibleTimeframes = drawing.visibleTimeframes ?? [];
   const showOnAllTimeframes = drawing.visibleTimeframes == null;
-  const fibLevels =
-    drawing.fibLevels && drawing.fibLevels.length > 0
-      ? drawing.fibLevels
+  type FibLevel = (typeof DEFAULT_FIB_LEVELS)[number];
+
+  const fibLevels: FibLevel[] =
+    Array.isArray((drawing as any).fibLevels) && (drawing as any).fibLevels.length > 0
+      ? ((drawing as any).fibLevels as FibLevel[])
       : DEFAULT_FIB_LEVELS;
 
   const toggleTimeframe = (timeframe: number) => {
@@ -80,20 +83,20 @@ export default function DrawingSettingsPanel() {
 
   const updateFibLevel = (
     index: number,
-    patch: Partial<(typeof fibLevels)[number]>,
+    patch: Partial<FibLevel>,
   ) => {
     const nextLevels = fibLevels
       .map((level, levelIndex) => (levelIndex === index ? { ...level, ...patch } : level))
       .sort((a, b) => a.value - b.value);
 
-    updateSelectedDrawing({ fibLevels: nextLevels });
+    updateSelectedDrawing({ fibLevels: nextLevels } as any);
   };
 
   const removeFibLevel = (index: number) => {
     const nextLevels = fibLevels.filter((_, levelIndex) => levelIndex !== index);
     updateSelectedDrawing({
       fibLevels: nextLevels.length ? nextLevels : DEFAULT_FIB_LEVELS.map((level) => ({ ...level })),
-    });
+    } as any);
   };
 
   return (
@@ -197,11 +200,11 @@ export default function DrawingSettingsPanel() {
             <label className="mb-2 block">
               <span className="mb-1 block text-slate-300">Fib label content</span>
               <select
-                value={drawing.fibLabelMode ?? 'percent'}
+                value={(drawing as any).fibLabelMode ?? 'percent'}
                 onChange={(event) =>
                   updateSelectedDrawing({
                     fibLabelMode: event.target.value as FibLabelMode,
-                  })
+                  } as any)
                 }
                 className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"
               >
@@ -310,9 +313,9 @@ export default function DrawingSettingsPanel() {
                   <span className="text-slate-300">Reverse levels</span>
                   <input
                     type="checkbox"
-                    checked={drawing.fibReverse ?? false}
+                    checked={(drawing as any).fibReverse ?? false}
                     onChange={(event) =>
-                      updateSelectedDrawing({ fibReverse: event.target.checked })
+                      updateSelectedDrawing({ fibReverse: event.target.checked } as any)
                     }
                   />
                 </label>
@@ -321,9 +324,9 @@ export default function DrawingSettingsPanel() {
                   <span className="text-slate-300">Extend left</span>
                   <input
                     type="checkbox"
-                    checked={drawing.fibExtendLeft ?? false}
+                    checked={(drawing as any).fibExtendLeft ?? false}
                     onChange={(event) =>
-                      updateSelectedDrawing({ fibExtendLeft: event.target.checked })
+                      updateSelectedDrawing({ fibExtendLeft: event.target.checked } as any)
                     }
                   />
                 </label>
@@ -332,9 +335,9 @@ export default function DrawingSettingsPanel() {
                   <span className="text-slate-300">Extend right</span>
                   <input
                     type="checkbox"
-                    checked={drawing.fibExtendRight ?? true}
+                    checked={(drawing as any).fibExtendRight ?? true}
                     onChange={(event) =>
-                      updateSelectedDrawing({ fibExtendRight: event.target.checked })
+                      updateSelectedDrawing({ fibExtendRight: event.target.checked } as any)
                     }
                   />
                 </label>
@@ -343,9 +346,9 @@ export default function DrawingSettingsPanel() {
                   <span className="text-slate-300">Show fib labels</span>
                   <input
                     type="checkbox"
-                    checked={drawing.fibShowLabels ?? true}
+                    checked={(drawing as any).fibShowLabels ?? true}
                     onChange={(event) =>
-                      updateSelectedDrawing({ fibShowLabels: event.target.checked })
+                      updateSelectedDrawing({ fibShowLabels: event.target.checked } as any)
                     }
                   />
                 </label>
@@ -371,7 +374,7 @@ export default function DrawingSettingsPanel() {
                             lineStyle: 'dashed' as DrawingLineStyle,
                           },
                         ].sort((a, b) => a.value - b.value),
-                      })
+                      } as any)
                     }
                     className="rounded bg-slate-800 px-2 py-1 text-slate-200 hover:bg-slate-700"
                   >
@@ -383,7 +386,7 @@ export default function DrawingSettingsPanel() {
                     onClick={() =>
                       updateSelectedDrawing({
                         fibLevels: DEFAULT_FIB_LEVELS.map((level) => ({ ...level })),
-                      })
+                      } as any)
                     }
                     className="rounded bg-slate-800 px-2 py-1 text-slate-200 hover:bg-slate-700"
                   >
@@ -490,6 +493,37 @@ export default function DrawingSettingsPanel() {
               </div>
             </div>
           </>
+        )}
+
+        {supportsRR && (
+          <div className="rounded border border-slate-700 p-3">
+            <div className="mb-2 text-slate-300">Risk:Reward</div>
+
+            <label className="block mb-2">
+              <span className="mb-1 block text-slate-300">Reward multiplier</span>
+              <input
+                type="number"
+                step="0.1"
+                min={0}
+                value={drawing.rrMultiplier ?? 1}
+                onChange={(event) =>
+                  updateSelectedDrawing({ rrMultiplier: Number(event.target.value) })
+                }
+                className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"
+              />
+            </label>
+
+            <label className="flex items-center justify-between rounded border border-slate-700 px-3 py-2">
+              <span className="text-slate-300">Show price labels</span>
+              <input
+                type="checkbox"
+                checked={drawing.showPriceLabels ?? true}
+                onChange={(event) =>
+                  updateSelectedDrawing({ showPriceLabels: event.target.checked })
+                }
+              />
+            </label>
+          </div>
         )}
 
         <label className="flex items-center justify-between rounded border border-slate-700 px-3 py-2">

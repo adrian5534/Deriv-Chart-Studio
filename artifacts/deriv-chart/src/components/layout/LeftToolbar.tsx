@@ -9,6 +9,7 @@ const tools: { id: DrawingTool; icon: React.ReactNode; label: string }[] = [
   { id: 'hline', icon: <Minus size={18} />, label: 'Horizontal Line' },
   { id: 'fib', icon: <Divide size={18} />, label: 'Fibonacci Retracement' },
   { id: 'rect', icon: <Square size={18} />, label: 'Rectangle' },
+  { id: 'rr', icon: <ArrowUpRight size={18} />, label: 'Risk / Reward' },
 ];
 
 export default function LeftToolbar() {

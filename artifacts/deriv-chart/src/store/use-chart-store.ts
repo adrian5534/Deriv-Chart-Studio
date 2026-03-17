@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { ASSETS } from '../lib/deriv-constants';
 import { CandleData } from '../hooks/use-deriv-websocket';
 
-export type DrawingTool = 'cursor' | 'trendline' | 'hline' | 'fib' | 'rect' | 'ray';
+export type DrawingTool = 'cursor' | 'trendline' | 'hline' | 'fib' | 'rect' | 'ray' | 'rr';
 export type DrawingLineStyle = 'solid' | 'dashed' | 'dotted';
 
 export interface Point {
@@ -23,27 +23,21 @@ export type DrawingLabelHorizontalAlign = 'left' | 'center' | 'right';
 export type DrawingLabelVerticalAlign = 'top' | 'middle' | 'bottom';
 export type FibLabelMode = 'percent' | 'price';
 
-export interface Drawing {
+export type Drawing = {
   id: string;
-  type: 'trendline' | 'ray' | 'hline' | 'rect' | 'fib';
+  type: string;
   points: Point[];
   color?: string;
   lineWidth?: number;
   lineStyle?: DrawingLineStyle;
   fillOpacity?: number;
-  locked?: boolean;
-  visibleTimeframes?: number[];
-
-  fibReverse?: boolean;
-  fibExtendLeft?: boolean;
-  fibExtendRight?: boolean;
-  fibShowLabels?: boolean;
-  fibLevels?: FibLevel[];
-
+  rrMultiplier?: number; // default 1
   showPriceLabels?: boolean;
   fibLabelMode?: FibLabelMode;
   labelHorizontalAlign?: DrawingLabelHorizontalAlign;
   labelVerticalAlign?: DrawingLabelVerticalAlign;
+  visibleTimeframes?: number[] | undefined;
+  locked?: boolean;
 }
 
 interface ChartState {

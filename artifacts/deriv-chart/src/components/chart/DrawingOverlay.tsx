@@ -97,7 +97,7 @@ function applyLineStyle(ctx: CanvasRenderingContext2D, lineStyle: DrawingLineSty
 }
 
 function getVisibleFibLevels(drawing: Drawing) {
-  const configured = drawing.fibLevels?.filter((level) => level.visible !== false);
+  const configured = (drawing as any).fibLevels?.filter((level: any) => level.visible !== false);
   return configured?.length ? configured : DEFAULT_FIB_LEVELS;
 }
 
@@ -411,8 +411,12 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       }
 
       if (drawing.type === 'fib' && drawing.points.length >= 2) {
-        const fromPoint = drawing.fibReverse ? drawing.points[1] : drawing.points[0];
-        const toPoint = drawing.fibReverse ? drawing.points[0] : drawing.points[1];
+        const fibReverse = (drawing as any).fibReverse ?? false;
+        const fibExtendLeft = (drawing as any).fibExtendLeft ?? false;
+        const fibExtendRight = (drawing as any).fibExtendRight ?? true;
+
+        const fromPoint = fibReverse ? drawing.points[1] : drawing.points[0];
+        const toPoint = fibReverse ? drawing.points[0] : drawing.points[1];
         const p1 = projectPoint(fromPoint);
         const p2 = projectPoint(toPoint);
         if (!p1 || !p2) continue;
@@ -421,8 +425,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const diff = p2.y - p1.y;
         const minX = Math.min(p1.x, p2.x);
         const maxAnchorX = Math.max(p1.x, p2.x);
-        const lineStartX = drawing.fibExtendLeft ? 0 : minX;
-        const lineEndX = drawing.fibExtendRight === false ? maxAnchorX : maxX;
+        const lineStartX = fibExtendLeft ? 0 : minX;
+        const lineEndX = fibExtendRight === false ? maxAnchorX : maxX;
 
         for (const level of levels) {
           const levelY = p1.y + diff * level.value;
@@ -432,6 +436,40 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
             Math.abs(y - levelY) <= HIT_DISTANCE;
 
           if (nearLine) {
+            return drawing.id;
+          }
+        }
+      } else if (drawing.type === 'rr' && drawing.points.length >= 2) {
+        // Risk:Reward hit detection (no canvas drawing here)
+        const entryPoint = drawing.points[0];
+        const stopPoint = drawing.points[1];
+        const rrMultiplier = drawing.rrMultiplier ?? 1;
+
+        const pEntry = projectPoint(entryPoint);
+        const pStop = projectPoint(stopPoint);
+        if (pEntry && pStop) {
+          // compute default target price using multiplier:
+          const entryPrice = entryPoint.price;
+          const stopPrice = stopPoint.price;
+          const targetPrice = entryPrice + (entryPrice - stopPrice) * rrMultiplier;
+
+          const yEntry = pEntry.y;
+          const yStop = pStop.y;
+          const targetY = series.priceToCoordinate(targetPrice);
+
+          // check proximity to entry/stop/target lines
+          if (Math.abs(y - yEntry) <= HIT_DISTANCE || Math.abs(y - yStop) <= HIT_DISTANCE) {
+            return drawing.id;
+          }
+
+          if (targetY != null && Math.abs(y - targetY) <= HIT_DISTANCE) {
+            return drawing.id;
+          }
+
+          // check if inside the red risk area between entry and stop
+          const redTop = Math.min(yEntry, yStop);
+          const redBottom = Math.max(yEntry, yStop);
+          if (y >= redTop - HIT_DISTANCE && y <= redBottom + HIT_DISTANCE) {
             return drawing.id;
           }
         }
@@ -550,8 +588,9 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           ctx.strokeRect(left, top, rectWidth, rectHeight);
         }
       } else if (drawing.type === 'fib' && drawing.points.length >= 2) {
-        const fromPoint = drawing.fibReverse ? drawing.points[1] : drawing.points[0];
-        const toPoint = drawing.fibReverse ? drawing.points[0] : drawing.points[1];
+        const fibReverse = (drawing as any).fibReverse ?? false;
+        const fromPoint = fibReverse ? drawing.points[1] : drawing.points[0];
+        const toPoint = fibReverse ? drawing.points[0] : drawing.points[1];
         const p1 = projectPoint(fromPoint);
         const p2 = projectPoint(toPoint);
 
@@ -561,9 +600,9 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const priceDiff = toPoint.price - fromPoint.price;
           const minX = Math.min(p1.x, p2.x);
           const maxAnchorX = Math.max(p1.x, p2.x);
-          const lineStartX = drawing.fibExtendLeft ? 0 : minX;
-          const lineEndX = drawing.fibExtendRight === false ? maxAnchorX : maxX;
-          const showFibLabels = drawing.fibShowLabels !== false;
+          const lineStartX = (drawing as any).fibExtendLeft ? 0 : minX;
+          const lineEndX = (drawing as any).fibExtendRight === false ? maxAnchorX : maxX;
+          const showFibLabels = (drawing as any).fibShowLabels !== false;
 
           ctx.beginPath();
           ctx.strokeStyle = color;
@@ -572,7 +611,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           ctx.lineTo(p2.x, p2.y);
           ctx.stroke();
 
-          levels.forEach((level) => {
+          levels.forEach((level: { value: number; label?: string; color?: string; lineStyle?: DrawingLineStyle }) => {
             const y = p1.y + diff * level.value;
             const priceAtLevel = fromPoint.price + priceDiff * level.value;
             const labelText =
@@ -601,6 +640,119 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
               );
             }
           });
+        }
+      } else if (drawing.type === 'rr' && drawing.points.length >= 2) {
+        // Risk:Reward rendering
+        const entryPoint = drawing.points[0];
+        const stopPoint = drawing.points[1];
+        const rrMultiplier = drawing.rrMultiplier ?? 1;
+
+        const pEntry = projectPoint(entryPoint);
+        const pStop = projectPoint(stopPoint);
+        if (pEntry && pStop) {
+          // compute default target price using multiplier:
+          const entryPrice = entryPoint.price;
+          const stopPrice = stopPoint.price;
+          const risk = entryPrice - stopPrice; // can be negative for some directions
+          // target = entry + (-risk) * multiplier  => reward = (entry - stop) * multiplier directionally reversed
+          const targetPrice = entryPrice + (entryPrice - stopPrice) * rrMultiplier;
+
+          const yEntry = pEntry.y;
+          const yStop = pStop.y;
+          const targetY = series.priceToCoordinate(targetPrice);
+
+          // determine red/green spans (y coordinates)
+          // red area between entry and stop
+          const redTop = Math.min(yEntry, yStop);
+          const redBottom = Math.max(yEntry, yStop);
+
+          // green area between entry and target
+          if (targetY != null) {
+            const greenTop = Math.min(yEntry, targetY);
+            const greenBottom = Math.max(yEntry, targetY);
+
+            // draw green fill
+            ctx.save();
+            ctx.fillStyle = hexToRgba('#34D399', 0.12); // green tint
+            ctx.fillRect(0, greenTop, maxX, Math.max(1, greenBottom - greenTop));
+            ctx.restore();
+          }
+
+          // draw red fill
+          ctx.save();
+          ctx.fillStyle = hexToRgba('#EF5350', 0.12); // red tint
+          ctx.fillRect(0, redTop, maxX, Math.max(1, redBottom - redTop));
+          ctx.restore();
+
+          // draw lines for entry / stop / target
+          ctx.save();
+          ctx.lineWidth = baseLineWidth;
+          // entry line (neutral / white)
+          ctx.strokeStyle = drawing.color ?? '#ffffff';
+          ctx.beginPath();
+          ctx.moveTo(0, yEntry);
+          ctx.lineTo(maxX, yEntry);
+          ctx.stroke();
+
+          // stop line (red)
+          ctx.strokeStyle = '#ef5350';
+          ctx.beginPath();
+          ctx.moveTo(0, yStop);
+          ctx.lineTo(maxX, yStop);
+          ctx.stroke();
+
+          if (targetY != null) {
+            ctx.strokeStyle = '#26a69a';
+            ctx.beginPath();
+            ctx.moveTo(0, targetY);
+            ctx.lineTo(maxX, targetY);
+            ctx.stroke();
+          }
+
+          // labels: price labels and RR
+          const riskAbs = Math.abs(entryPrice - stopPrice);
+          const rewardAbs = Math.abs(targetPrice - entryPrice);
+          const rrVal = riskAbs > 0 ? rewardAbs / riskAbs : NaN;
+          const rrLabel = isFinite(rrVal) ? `RR ${rrVal.toFixed(2)}` : 'RR —';
+
+          // draw small boxed labels near the entry line
+          drawTextLabel(
+            ctx,
+            `${entryPrice.toFixed(4)} ${rrLabel}`,
+            0,
+            maxX,
+            yEntry,
+            drawing.color ?? '#ffffff',
+            labelHorizontalAlign,
+            labelVerticalAlign,
+          );
+
+          // stop/target price labels
+          drawTextLabel(
+            ctx,
+            stopPoint.price.toFixed(4),
+            0,
+            maxX,
+            yStop,
+            '#ef5350',
+            'right',
+            'top',
+          );
+
+          if (targetY != null) {
+            drawTextLabel(
+              ctx,
+              targetPrice.toFixed(4),
+              0,
+              maxX,
+              targetY,
+              '#26a69a',
+              'right',
+              'bottom',
+            );
+          }
+
+          ctx.restore();
         }
       }
 
