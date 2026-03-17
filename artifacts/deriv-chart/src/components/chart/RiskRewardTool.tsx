@@ -72,29 +72,7 @@ export default function RiskRewardTool({ chart, series }: Props) {
   return (
     <div className="bg-secondary/80 p-2 rounded-md shadow-md w-56 text-sm">
       <div className="flex items-center justify-between mb-2">
-        <strong>Risk : Reward</strong>
-        <button onClick={() => setOpen(o => !o)} className="text-xs text-muted-foreground">
-          {open ? 'Hide' : 'Open'}
-        </button>
       </div>
-
-      {open ? (
-        <>
-          <label className="block text-xs">Entry</label>
-          <input className="w-full mb-1 p-1 rounded bg-card text-sm" type="number" value={entry} onChange={e => setEntry(e.target.value === '' ? '' : Number(e.target.value))} />
-          <label className="block text-xs">Stop</label>
-          <input className="w-full mb-1 p-1 rounded bg-card text-sm" type="number" value={stop} onChange={e => setStop(e.target.value === '' ? '' : Number(e.target.value))} />
-          <label className="block text-xs">Target</label>
-          <input className="w-full mb-2 p-1 rounded bg-card text-sm" type="number" value={target} onChange={e => setTarget(e.target.value === '' ? '' : Number(e.target.value))} />
-
-          <div className="flex gap-2">
-            <button onClick={addLines} className="flex-1 bg-emerald-500 text-white rounded py-1 text-xs">Add</button>
-            <button onClick={handleClear} className="flex-1 bg-rose-500 text-white rounded py-1 text-xs">Clear</button>
-          </div>
-        </>
-      ) : (
-        <div className="text-xs text-muted-foreground">Manual entry UI — add stop & target lines.</div>
-      )}
     </div>
   );
 }
