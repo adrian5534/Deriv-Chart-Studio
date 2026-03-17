@@ -70,9 +70,7 @@ export default function RiskRewardTool({ chart, series }: Props) {
   };
 
   return (
-    <div className="bg-secondary/80 p-2 rounded-md shadow-md w-56 text-sm">
-      <div className="flex items-center justify-between mb-2">
+    <div>
       </div>
-    </div>
   );
 }
