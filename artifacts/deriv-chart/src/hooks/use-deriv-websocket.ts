@@ -18,45 +18,67 @@ interface UseDerivWebSocketProps {
 }
 
 let activeAudioContext: AudioContext | null = null;
-let activeOscillator: OscillatorNode | null = null;
+let activeOscillators: OscillatorNode[] = [];
+let heartbeatIntervalRef: ReturnType<typeof setInterval> | null = null;
 
-const playAlertSound = () => {
+const playHeartbeatSound = () => {
   try {
-    // Stop any existing sound
-    if (activeOscillator) {
-      activeOscillator.stop();
-      activeOscillator = null;
+    // Stop any existing heartbeat
+    if (heartbeatIntervalRef) {
+      clearInterval(heartbeatIntervalRef);
+      heartbeatIntervalRef = null;
     }
 
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
-
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-
-    oscillator.frequency.value = 800;
-    oscillator.type = 'sine';
-
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    // Keep sound playing until stopped externally
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 10);
-
-    oscillator.start(audioContext.currentTime);
-
     activeAudioContext = audioContext;
-    activeOscillator = oscillator;
+
+    const playBeat = () => {
+      try {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.15);
+
+        activeOscillators.push(oscillator);
+      } catch (e) {
+        console.error('Heartbeat beat failed:', e);
+      }
+    };
+
+    // Play first beat immediately
+    playBeat();
+
+    // Play beats every 600ms (like a heartbeat)
+    heartbeatIntervalRef = setInterval(playBeat, 600);
   } catch (e) {
-    console.error('Alert sound failed:', e);
+    console.error('Heartbeat sound failed:', e);
   }
 };
 
 export const stopAlertSound = () => {
   try {
-    if (activeOscillator) {
-      activeOscillator.stop();
-      activeOscillator = null;
+    if (heartbeatIntervalRef) {
+      clearInterval(heartbeatIntervalRef);
+      heartbeatIntervalRef = null;
     }
+    activeOscillators.forEach(osc => {
+      try {
+        osc.stop();
+      } catch {
+        // Already stopped
+      }
+    });
+    activeOscillators = [];
     if (activeAudioContext) {
       activeAudioContext.close();
       activeAudioContext = null;
@@ -101,9 +123,9 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
         if (!triggeredAlertsRef.current.has(alertKey)) {
           triggeredAlertsRef.current.add(alertKey);
 
-          // Play sound if enabled
+          // Play heartbeat if enabled
           if (alert.soundEnabled) {
-            playAlertSound();
+            playHeartbeatSound();
           }
 
           // Emit alert event to show popup
