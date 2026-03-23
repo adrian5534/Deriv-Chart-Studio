@@ -938,6 +938,97 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
   }, [bumpOverlay, renderDrawings]);
 
   useEffect(() => {
+    if (!draggingHandle && !draggingDrawing) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      const canvasPoint = getCanvasPointFromClient(event.clientX, event.clientY);
+      if (!canvasPoint) return;
+
+      if (draggingHandle) {
+        const drawing = drawingsRef.current.find((item) => item.id === draggingHandle.drawingId);
+        if (!drawing || drawing.locked) return;
+
+        const nextPoint = toChartPoint(
+          canvasPoint.x,
+          canvasPoint.y,
+          drawing.points[0],
+        );
+
+        if (!nextPoint) return;
+
+        const logical = chart.timeScale().coordinateToLogical(canvasPoint.x);
+        const nextPointWithLogical = {
+          ...nextPoint,
+          logical: logical != null ? Number(logical) : nextPoint.logical,
+        };
+
+        const nextPoints = drawing.points.map((point, index) =>
+          index === draggingHandle.pointIndex ? nextPointWithLogical : point,
+        );
+
+        useChartStore.getState().updateDrawing(draggingHandle.drawingId, {
+          points: nextPoints,
+        });
+
+        renderDrawings();
+        bumpOverlay();
+        return;
+      }
+
+      if (draggingDrawing) {
+        const drawing = drawingsRef.current.find((item) => item.id === draggingDrawing.drawingId);
+        const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
+        if (!anchor || !drawing) return;
+
+        const logicalDelta = anchor.logical - draggingDrawing.startLogical;
+        const priceDelta = anchor.price - draggingDrawing.startPrice;
+
+        useChartStore.getState().updateDrawing(draggingDrawing.drawingId, {
+          points: draggingDrawing.originalPoints.map((point) => ({
+            time: point.time + Math.round(logicalDelta * (drawing.baseTimeframe ?? timeframe)),
+            price: point.price + priceDelta,
+            logical:
+              typeof point.logical === 'number'
+                ? point.logical + logicalDelta
+                : logicalDelta,
+          })),
+        });
+
+        renderDrawings();
+        bumpOverlay();
+      }
+    };
+
+    const stopDragging = () => {
+      setDraggingHandle(null);
+      setDraggingDrawing(null);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove, { capture: true });
+    window.addEventListener('pointerup', stopDragging, { capture: true });
+    window.addEventListener('pointercancel', stopDragging, { capture: true });
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove, { capture: true });
+      window.removeEventListener('pointerup', stopDragging, { capture: true });
+      window.removeEventListener('pointercancel', stopDragging, { capture: true });
+    };
+  }, [
+    draggingDrawing,
+    draggingHandle,
+    getCanvasPointFromClient,
+    timeframe,
+    toChartPoint,
+    toLogicalPricePoint,
+    chart,
+    renderDrawings,
+    bumpOverlay,
+  ]);
+
+  useEffect(() => {
     const host = containerRef.current?.parentElement;
     if (!host) return;
 
@@ -955,6 +1046,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       if (handleHit) {
         const drawing = drawingsRef.current.find((item) => item.id === handleHit.drawingId);
         if (drawing && !drawing.locked) {
+          event.preventDefault();
+          event.stopPropagation();
           setDraggingHandle(handleHit);
           return;
         }
@@ -967,6 +1060,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           if (drawing && !drawing.locked) {
             const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
             if (anchor) {
+              event.preventDefault();
+              event.stopPropagation();
               setDraggingDrawing({
                 drawingId,
                 startLogical: anchor.logical,
@@ -980,10 +1075,10 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       }
     };
 
-    host.addEventListener('pointerdown', handlePointerDown, true);
+    host.addEventListener('pointerdown', handlePointerDown, { capture: true });
 
     return () => {
-      host.removeEventListener('pointerdown', handlePointerDown, true);
+      host.removeEventListener('pointerdown', handlePointerDown, { capture: true });
     };
   }, [
     draggingDrawing,
@@ -1179,6 +1274,9 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     if (!draggingHandle && !draggingDrawing) return;
 
     const handlePointerMove = (event: PointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      
       const canvasPoint = getCanvasPointFromClient(event.clientX, event.clientY);
       if (!canvasPoint) return;
 
@@ -1204,7 +1302,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           index === draggingHandle.pointIndex ? nextPointWithLogical : point,
         );
 
-        suppressNextClickRef.current = true;
         useChartStore.getState().updateDrawing(draggingHandle.drawingId, {
           points: nextPoints,
         });
@@ -1222,7 +1319,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const logicalDelta = anchor.logical - draggingDrawing.startLogical;
         const priceDelta = anchor.price - draggingDrawing.startPrice;
 
-        suppressNextClickRef.current = true;
         useChartStore.getState().updateDrawing(draggingDrawing.drawingId, {
           points: draggingDrawing.originalPoints.map((point) => ({
             time: point.time + Math.round(logicalDelta * (drawing.baseTimeframe ?? timeframe)),
@@ -1244,14 +1340,14 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       setDraggingDrawing(null);
     };
 
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', stopDragging);
-    window.addEventListener('pointercancel', stopDragging);
+    window.addEventListener('pointermove', handlePointerMove, { capture: true });
+    window.addEventListener('pointerup', stopDragging, { capture: true });
+    window.addEventListener('pointercancel', stopDragging, { capture: true });
 
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', stopDragging);
-      window.removeEventListener('pointercancel', stopDragging);
+      window.removeEventListener('pointermove', handlePointerMove, { capture: true });
+      window.removeEventListener('pointerup', stopDragging, { capture: true });
+      window.removeEventListener('pointercancel', stopDragging, { capture: true });
     };
   }, [
     draggingDrawing,
