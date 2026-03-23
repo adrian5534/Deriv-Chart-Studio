@@ -877,7 +877,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
   useEffect(() => {
     renderDrawings();
     bumpOverlay();
-  }, [drawings, selectedDrawingId, timeframe, renderDrawings, bumpOverlay]);
+  }, [drawings, selectedDrawingId, timeframe, currentDrawIdRef, renderDrawings, bumpOverlay]);
 
   useEffect(() => {
     let frame1 = 0;
