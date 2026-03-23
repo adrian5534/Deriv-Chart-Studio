@@ -277,7 +277,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       return {
         time: directTime,
         price,
-        logical: nextLogical,
+        logical: nextLogical, // Always store logical
       };
     }
 
@@ -293,7 +293,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     return {
       time: referencePoint.time + Math.round((nextLogical - referenceLogical) * timeframe),
       price,
-      logical: nextLogical,
+      logical: nextLogical, // Always store logical
     };
   }, [chart, getPointLogical, series, timeframe]);
 
@@ -327,29 +327,20 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     const items = [...drawingsRef.current].reverse();
 
     for (const drawing of items) {
-      if (drawing.locked) continue;
+      if (drawing.locked || !isDrawingVisibleOnTimeframe(drawing)) continue;
 
-      for (let i = 0; i < drawing.points.length; i++) {
-        const point = drawing.points[i];
-        const coords = projectPoint(point);
-
+      for (let i = drawing.points.length - 1; i >= 0; i -= 1) {
+        const coords = projectPoint(drawing.points[i]);
         if (!coords) continue;
 
-        const dx = coords.x - x;
-        const dy = coords.y - y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-
-        if (dist <= HANDLE_RADIUS + 4) {
-          return {
-            drawingId: drawing.id,
-            pointIndex: i,
-          };
+        if (distance(x, y, coords.x, coords.y) <= HANDLE_RADIUS + HIT_DISTANCE) {
+          return { drawingId: drawing.id, pointIndex: i };
         }
       }
     }
 
     return null;
-  }, [projectPoint]);
+  }, [isDrawingVisibleOnTimeframe, projectPoint]);
 
   const findDrawingAt = useCallback((x: number, y: number) => {
     const canvas = canvasRef.current;
@@ -450,6 +441,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           }
         }
       } else if (drawing.type === 'rr' && drawing.points.length >= 2) {
+        // Risk:Reward hit detection (no canvas drawing here)
         const entryPoint = drawing.points[0];
         const stopPoint = drawing.points[1];
         const rrMultiplier = drawing.rrMultiplier ?? 1;
@@ -457,6 +449,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const pEntry = projectPoint(entryPoint);
         const pStop = projectPoint(stopPoint);
         if (pEntry && pStop) {
+          // compute default target price using multiplier:
           const entryPrice = entryPoint.price;
           const stopPrice = stopPoint.price;
           const targetPrice = entryPrice + (entryPrice - stopPrice) * rrMultiplier;
@@ -465,6 +458,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const yStop = pStop.y;
           const targetY = series.priceToCoordinate(targetPrice);
 
+          // check proximity to entry/stop/target lines
           if (Math.abs(y - yEntry) <= HIT_DISTANCE || Math.abs(y - yStop) <= HIT_DISTANCE) {
             return drawing.id;
           }
@@ -473,6 +467,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
             return drawing.id;
           }
 
+          // check if inside the red risk area between entry and stop
           const redTop = Math.min(yEntry, yStop);
           const redBottom = Math.max(yEntry, yStop);
           if (y >= redTop - HIT_DISTANCE && y <= redBottom + HIT_DISTANCE) {
@@ -511,382 +506,344 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     drawingsRef.current.forEach((drawing) => {
       if (!drawing.points.length || !isDrawingVisibleOnTimeframe(drawing)) return;
 
-      renderDrawing(ctx, drawing, width, height, maxX);
-    });
+      const color = drawing.color || '#2962FF';
+      const isSelected = drawing.id === selectedDrawingIdRef.current;
+      const isHovered = drawing.id === hoveredDrawingIdRef.current;
+      const baseLineWidth = drawing.lineWidth || 2;
+      const showPriceLabels = drawing.showPriceLabels ?? drawing.type === 'hline';
+      const labelHorizontalAlign = drawing.labelHorizontalAlign ?? 'right';
+      const labelVerticalAlign = drawing.labelVerticalAlign ?? 'top';
+      const fibLabelMode: FibLabelMode = drawing.fibLabelMode ?? 'percent';
 
-    const currentDrawId = currentDrawIdRef.current;
-    if (currentDrawId) {
-      const drawing = drawingsRef.current.find((d) => d.id === currentDrawId);
-      if (drawing) {
-        ctx.save();
-        ctx.globalAlpha = 0.6;
-        renderDrawing(ctx, drawing, width, height, maxX);
-        ctx.restore();
-      }
-    }
-  }, [drawWidth, isDrawingVisibleOnTimeframe]);
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = isSelected ? baseLineWidth + 0.5 : isHovered ? baseLineWidth + 0.25 : baseLineWidth;
+      applyLineStyle(ctx, drawing.lineStyle || 'solid');
 
-  const renderDrawing = useCallback((
-    ctx: CanvasRenderingContext2D,
-    drawing: Drawing,
-    width: number,
-    height: number,
-    maxX: number,
-  ) => {
-    const color = drawing.color || '#2962FF';
-    const isSelected = drawing.id === selectedDrawingIdRef.current;
-    const isHovered = drawing.id === hoveredDrawingIdRef.current;
-    const baseLineWidth = drawing.lineWidth || 2;
-    const showPriceLabels = drawing.showPriceLabels ?? drawing.type === 'hline';
-    const labelHorizontalAlign = drawing.labelHorizontalAlign ?? 'right';
-    const labelVerticalAlign = drawing.labelVerticalAlign ?? 'top';
-    const fibLabelMode: FibLabelMode = drawing.fibLabelMode ?? 'percent';
+      if (drawing.type === 'trendline' && drawing.points.length >= 2) {
+        const p1 = projectPoint(drawing.points[0]);
+        const p2 = projectPoint(drawing.points[1]);
 
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = isSelected ? baseLineWidth + 0.5 : isHovered ? baseLineWidth + 0.25 : baseLineWidth;
-    applyLineStyle(ctx, drawing.lineStyle || 'solid');
-
-    if (drawing.type === 'trendline' && drawing.points.length >= 2) {
-      const p1 = projectPoint(drawing.points[0]);
-      const p2 = projectPoint(drawing.points[1]);
-
-      if (p1 && p2) {
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-      }
-    } else if (drawing.type === 'ray' && drawing.points.length >= 2) {
-      const p1 = projectPoint(drawing.points[0]);
-      const p2 = projectPoint(drawing.points[1]);
-
-      if (p1 && p2) {
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-
-        if (dx === 0) {
-          const yEnd = dy >= 0 ? height : 0;
-          ctx.lineTo(p1.x, yEnd);
-        } else {
-          const xEnd = maxX;
-          const yEnd = p1.y + ((xEnd - p1.x) / dx) * dy;
-          ctx.lineTo(xEnd, yEnd);
+        if (p1 && p2) {
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
         }
+      } else if (drawing.type === 'ray' && drawing.points.length >= 2) {
+        const p1 = projectPoint(drawing.points[0]);
+        const p2 = projectPoint(drawing.points[1]);
 
-        ctx.stroke();
-      }
-    } else if (drawing.type === 'hline' && drawing.points.length >= 1) {
-      const y1 = series.priceToCoordinate(drawing.points[0].price);
-
-      if (y1 != null) {
-        ctx.beginPath();
-        ctx.moveTo(0, y1);
-        ctx.lineTo(maxX, y1);
-        ctx.stroke();
-
-        if (showPriceLabels) {
-          drawTextLabel(
-            ctx,
-            drawing.points[0].price.toFixed(4),
-            0,
-            maxX,
-            y1,
-            color,
-            labelHorizontalAlign,
-            labelVerticalAlign,
-          );
-        }
-      }
-    } else if (drawing.type === 'rect' && drawing.points.length >= 2) {
-      const p1 = projectPoint(drawing.points[0]);
-      const p2 = projectPoint(drawing.points[1]);
-
-      if (p1 && p2) {
-        const left = Math.min(p1.x, p2.x);
-        const top = Math.min(p1.y, p2.y);
-        const rectWidth = Math.abs(p2.x - p1.x);
-        const rectHeight = Math.abs(p2.y - p1.y);
-
-        ctx.fillStyle = hexToRgba(color, drawing.fillOpacity ?? 0.12);
-        ctx.fillRect(left, top, rectWidth, rectHeight);
-        ctx.strokeRect(left, top, rectWidth, rectHeight);
-      }
-    } else if (drawing.type === 'fib' && drawing.points.length >= 2) {
-      const fibReverse = (drawing as any).fibReverse ?? false;
-      const fromPoint = fibReverse ? drawing.points[1] : drawing.points[0];
-      const toPoint = fibReverse ? drawing.points[0] : drawing.points[1];
-      const p1 = projectPoint(fromPoint);
-      const p2 = projectPoint(toPoint);
-
-      if (p1 && p2) {
-        const levels = getVisibleFibLevels(drawing);
-        const diff = p2.y - p1.y;
-        const priceDiff = toPoint.price - fromPoint.price;
-        const minX = Math.min(p1.x, p2.x);
-        const maxAnchorX = Math.max(p1.x, p2.x);
-        const lineStartX = (drawing as any).fibExtendLeft ? 0 : minX;
-        const lineEndX = (drawing as any).fibExtendRight === false ? maxAnchorX : maxX;
-        const showFibLabels = (drawing as any).fibShowLabels !== false;
-
-        ctx.beginPath();
-        ctx.strokeStyle = color;
-        ctx.setLineDash([]);
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-
-        levels.forEach((level: { value: number; label?: string; color?: string; lineStyle?: DrawingLineStyle }) => {
-          const y = p1.y + diff * level.value;
-          const priceAtLevel = fromPoint.price + priceDiff * level.value;
-          const labelText =
-            fibLabelMode === 'price'
-              ? priceAtLevel.toFixed(4)
-              : level.label || `${(level.value * 100).toFixed(1)}%`;
+        if (p1 && p2) {
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
 
           ctx.beginPath();
-          ctx.strokeStyle = level.color || color;
-          ctx.lineWidth = baseLineWidth;
-          applyLineStyle(ctx, level.lineStyle || drawing.lineStyle || 'solid');
-          ctx.moveTo(lineStartX, y);
-          ctx.lineTo(lineEndX, y);
+          ctx.moveTo(p1.x, p1.y);
+
+          if (dx === 0) {
+            const yEnd = dy >= 0 ? height : 0;
+            ctx.lineTo(p1.x, yEnd);
+          } else {
+            const xEnd = maxX;
+            const yEnd = p1.y + ((xEnd - p1.x) / dx) * dy;
+            ctx.lineTo(xEnd, yEnd);
+          }
+
+          ctx.stroke();
+        }
+      } else if (drawing.type === 'hline' && drawing.points.length >= 1) {
+        const y1 = series.priceToCoordinate(drawing.points[0].price);
+
+        if (y1 != null) {
+          ctx.beginPath();
+          ctx.moveTo(0, y1);
+          ctx.lineTo(maxX, y1);
           ctx.stroke();
 
-          if (showFibLabels) {
+          if (showPriceLabels) {
             drawTextLabel(
               ctx,
-              labelText,
-              lineStartX,
-              lineEndX,
-              y,
-              level.color || color,
+              drawing.points[0].price.toFixed(4),
+              0,
+              maxX,
+              y1,
+              color,
               labelHorizontalAlign,
               labelVerticalAlign,
             );
           }
-        });
-      }
-    } else if (drawing.type === 'rr' && drawing.points.length >= 2) {
-      const entryPoint = drawing.points[0];
-      const stopPoint = drawing.points[1];
-      const targetPoint = drawing.points[2];
-
-      const pEntry = projectPoint(entryPoint);
-      const pStop = projectPoint(stopPoint);
-      const pTarget = targetPoint ? projectPoint(targetPoint) : null;
-
-      if (pEntry && pStop) {
-        const entryPrice = entryPoint.price;
-        const stopPrice = stopPoint.price;
-        const risk = Math.abs(entryPrice - stopPrice);
-        
-        let targetPrice = entryPrice;
-        if (pTarget && targetPoint) {
-          targetPrice = targetPoint.price;
-        } else {
-          const rrMultiplier = drawing.rrMultiplier ?? 1;
-          targetPrice = entryPrice + (entryPrice - stopPrice) * rrMultiplier;
         }
+      } else if (drawing.type === 'rect' && drawing.points.length >= 2) {
+        const p1 = projectPoint(drawing.points[0]);
+        const p2 = projectPoint(drawing.points[1]);
 
-        const yEntry = pEntry.y;
-        const yStop = pStop.y;
-        const targetY = series.priceToCoordinate(targetPrice);
+        if (p1 && p2) {
+          const left = Math.min(p1.x, p2.x);
+          const top = Math.min(p1.y, p2.y);
+          const rectWidth = Math.abs(p2.x - p1.x);
+          const rectHeight = Math.abs(p2.y - p1.y);
 
-        const minX = Math.min(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
-        const maxRRX = Math.max(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
-        const xLeft = minX;
-        const xRight = maxRRX;
-
-        const redTop = Math.min(yEntry, yStop);
-        const redBottom = Math.max(yEntry, yStop);
-
-        if (targetY != null) {
-          const greenTop = Math.min(yEntry, targetY);
-          const greenBottom = Math.max(yEntry, targetY);
-
-          ctx.save();
-          ctx.fillStyle = hexToRgba('#34D399', 0.12);
-          ctx.fillRect(xLeft, greenTop, Math.max(40, xRight - xLeft), Math.max(1, greenBottom - greenTop));
-          ctx.restore();
+          ctx.fillStyle = hexToRgba(color, drawing.fillOpacity ?? 0.12);
+          ctx.fillRect(left, top, rectWidth, rectHeight);
+          ctx.strokeRect(left, top, rectWidth, rectHeight);
         }
+      } else if (drawing.type === 'fib' && drawing.points.length >= 2) {
+        const fibReverse = (drawing as any).fibReverse ?? false;
+        const fromPoint = fibReverse ? drawing.points[1] : drawing.points[0];
+        const toPoint = fibReverse ? drawing.points[0] : drawing.points[1];
+        const p1 = projectPoint(fromPoint);
+        const p2 = projectPoint(toPoint);
 
-        ctx.save();
-        ctx.fillStyle = hexToRgba('#EF5350', 0.12);
-        ctx.fillRect(xLeft, redTop, Math.max(40, xRight - xLeft), Math.max(1, redBottom - redTop));
-        ctx.restore();
+        if (p1 && p2) {
+          const levels = getVisibleFibLevels(drawing);
+          const diff = p2.y - p1.y;
+          const priceDiff = toPoint.price - fromPoint.price;
+          const minX = Math.min(p1.x, p2.x);
+          const maxAnchorX = Math.max(p1.x, p2.x);
+          const lineStartX = (drawing as any).fibExtendLeft ? 0 : minX;
+          const lineEndX = (drawing as any).fibExtendRight === false ? maxAnchorX : maxX;
+          const showFibLabels = (drawing as any).fibShowLabels !== false;
 
-        ctx.save();
-        ctx.lineWidth = baseLineWidth;
-
-        ctx.strokeStyle = drawing.color ?? '#ffffff';
-        ctx.beginPath();
-        ctx.moveTo(xLeft, yEntry);
-        ctx.lineTo(xRight, yEntry);
-        ctx.stroke();
-
-        ctx.strokeStyle = '#ef5350';
-        ctx.beginPath();
-        ctx.moveTo(xLeft, yStop);
-        ctx.lineTo(xRight, yStop);
-        ctx.stroke();
-
-        if (targetY != null) {
-          ctx.strokeStyle = '#26a69a';
           ctx.beginPath();
-          ctx.moveTo(xLeft, targetY);
-          ctx.lineTo(xRight, targetY);
+          ctx.strokeStyle = color;
+          ctx.setLineDash([]);
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
           ctx.stroke();
-        }
 
-        const rewardAbs = Math.abs(targetPrice - entryPrice);
-        const rrVal = risk > 0 ? rewardAbs / risk : NaN;
-        const rrLabel = isFinite(rrVal) ? `RR ${rrVal.toFixed(2)}` : 'RR —';
+          levels.forEach((level: { value: number; label?: string; color?: string; lineStyle?: DrawingLineStyle }) => {
+            const y = p1.y + diff * level.value;
+            const priceAtLevel = fromPoint.price + priceDiff * level.value;
+            const labelText =
+              fibLabelMode === 'price'
+                ? priceAtLevel.toFixed(4)
+                : level.label || `${(level.value * 100).toFixed(1)}%`;
 
-        drawTextLabel(
-          ctx,
-          `${entryPrice.toFixed(4)} ${rrLabel}`,
-          xLeft,
-          xRight,
-          yEntry,
-          drawing.color ?? '#ffffff',
-          labelHorizontalAlign,
-          labelVerticalAlign,
-        );
+            ctx.beginPath();
+            ctx.strokeStyle = level.color || color;
+            ctx.lineWidth = baseLineWidth;
+            applyLineStyle(ctx, level.lineStyle || drawing.lineStyle || 'solid');
+            ctx.moveTo(lineStartX, y);
+            ctx.lineTo(lineEndX, y);
+            ctx.stroke();
 
-        drawTextLabel(
-          ctx,
-          `Stop ${stopPrice.toFixed(4)}`,
-          xLeft,
-          xRight,
-          yStop,
-          '#ef5350',
-          'right',
-          'top',
-        );
-
-        if (targetY != null) {
-          drawTextLabel(
-            ctx,
-            `Target ${targetPrice.toFixed(4)}`,
-            xLeft,
-            xRight,
-            targetY,
-            '#26a69a',
-            'right',
-            'bottom',
-          );
-        }
-
-        ctx.restore();
-      }
-    }
-
-    if (showPriceLabels && drawing.type !== 'hline') {
-      drawing.points.forEach((point) => {
-        const coords = projectPoint(point);
-        if (!coords) return;
-
-        drawTextLabel(
-          ctx,
-          point.price.toFixed(4),
-          coords.x - 36,
-          coords.x + 36,
-          coords.y,
-          color,
-          labelHorizontalAlign,
-          labelVerticalAlign,
-        );
-      });
-    }
-
-    if (isHovered && !isSelected && !drawing.locked) {
-      ctx.setLineDash([]);
-      drawing.points.forEach((point) => {
-        const coords = projectPoint(point);
-        if (!coords) return;
-
-        ctx.beginPath();
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.arc(coords.x, coords.y, HANDLE_RADIUS, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      });
-    }
-
-    if (isSelected && !drawing.locked) {
-      ctx.setLineDash([]);
-      drawing.points.forEach((point) => {
-        const coords = projectPoint(point);
-        if (!coords) return;
-
-        ctx.beginPath();
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2.5;
-        ctx.arc(coords.x, coords.y, HANDLE_RADIUS + 1, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      });
-    }
-
-    ctx.restore();
-  }, [projectPoint, series]);
-
-  const selectedHandles = useMemo(() => {
-    const handles: Array<{
-      drawingId: string;
-      pointIndex: number;
-      x: number;
-      y: number;
-      color: string;
-    }> = [];
-
-    // Show handles for selected drawing in cursor mode
-    if (activeTool === 'cursor' && !currentDrawIdRef.current) {
-      if (selectedDrawingId) {
-        const drawing = drawings.find((item) => item.id === selectedDrawingId);
-        if (drawing && !drawing.locked && isDrawingVisibleOnTimeframe(drawing)) {
-          drawing.points.forEach((point, pointIndex) => {
-            const coords = projectPoint(point);
-            if (coords) {
-              handles.push({
-                drawingId: drawing.id,
-                pointIndex,
-                x: coords.x,
-                y: coords.y,
-                color: drawing.color || '#2962FF',
-              });
+            if (showFibLabels) {
+              drawTextLabel(
+                ctx,
+                labelText,
+                lineStartX,
+                lineEndX,
+                y,
+                level.color || color,
+                labelHorizontalAlign,
+                labelVerticalAlign,
+              );
             }
           });
         }
-      }
-    }
+      } else if (drawing.type === 'rr' && drawing.points.length >= 2) {
+        // Risk:Reward rendering — entry, stop, target (3 points total)
+        const entryPoint = drawing.points[0];
+        const stopPoint = drawing.points[1];
+        const targetPoint = drawing.points[2];
 
-    // Show handles for drawing in progress
-    if (currentDrawIdRef.current) {
-      const drawing = drawings.find((item) => item.id === currentDrawIdRef.current);
-      if (drawing && !drawing.locked && isDrawingVisibleOnTimeframe(drawing)) {
-        drawing.points.forEach((point, pointIndex) => {
-          const coords = projectPoint(point);
-          if (coords) {
-            handles.push({
-              drawingId: drawing.id,
-              pointIndex,
-              x: coords.x,
-              y: coords.y,
-              color: drawing.color || '#2962FF',
-            });
+        const pEntry = projectPoint(entryPoint);
+        const pStop = projectPoint(stopPoint);
+        const pTarget = targetPoint ? projectPoint(targetPoint) : null;
+
+        if (pEntry && pStop) {
+          const entryPrice = entryPoint.price;
+          const stopPrice = stopPoint.price;
+          const risk = Math.abs(entryPrice - stopPrice);
+          
+          // Use explicit target or calculate from multiplier
+          let targetPrice = entryPrice;
+          if (pTarget && targetPoint) {
+            targetPrice = targetPoint.price;
+          } else {
+            const rrMultiplier = drawing.rrMultiplier ?? 1;
+            targetPrice = entryPrice + (entryPrice - stopPrice) * rrMultiplier;
           }
+
+          const yEntry = pEntry.y;
+          const yStop = pStop.y;
+          const targetY = series.priceToCoordinate(targetPrice);
+
+          // Get left and right X coordinates from points with 20px padding for handles
+          const minX = Math.min(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
+          const maxX = Math.max(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
+          const xLeft = minX;
+          const xRight = maxX;
+          const boxWidth = Math.max(40, xRight - xLeft); // Minimum width for visibility
+
+          // Determine red/green areas
+          const redTop = Math.min(yEntry, yStop);
+          const redBottom = Math.max(yEntry, yStop);
+
+          if (targetY != null) {
+            const greenTop = Math.min(yEntry, targetY);
+            const greenBottom = Math.max(yEntry, targetY);
+
+            // Draw green fill
+            ctx.save();
+            ctx.fillStyle = hexToRgba('#34D399', 0.12);
+            ctx.fillRect(xLeft, greenTop, boxWidth, Math.max(1, greenBottom - greenTop));
+            ctx.restore();
+          }
+
+          // Draw red fill
+          ctx.save();
+          ctx.fillStyle = hexToRgba('#EF5350', 0.12);
+          ctx.fillRect(xLeft, redTop, boxWidth, Math.max(1, redBottom - redTop));
+          ctx.restore();
+
+          // Draw lines
+          ctx.save();
+          ctx.lineWidth = baseLineWidth;
+
+          // Entry line (bounded)
+          ctx.strokeStyle = drawing.color ?? '#ffffff';
+          ctx.beginPath();
+          ctx.moveTo(xLeft, yEntry);
+          ctx.lineTo(xRight, yEntry);
+          ctx.stroke();
+
+          // Stop line (bounded)
+          ctx.strokeStyle = '#ef5350';
+          ctx.beginPath();
+          ctx.moveTo(xLeft, yStop);
+          ctx.lineTo(xRight, yStop);
+          ctx.stroke();
+
+          // Target line (bounded)
+          if (targetY != null) {
+            ctx.strokeStyle = '#26a69a';
+            ctx.beginPath();
+            ctx.moveTo(xLeft, targetY);
+            ctx.lineTo(xRight, targetY);
+            ctx.stroke();
+          }
+
+          // Labels
+          const rewardAbs = Math.abs(targetPrice - entryPrice);
+          const rrVal = risk > 0 ? rewardAbs / risk : NaN;
+          const rrLabel = isFinite(rrVal) ? `RR ${rrVal.toFixed(2)}` : 'RR —';
+
+          drawTextLabel(
+            ctx,
+            `${entryPrice.toFixed(4)} ${rrLabel}`,
+            xLeft,
+            xRight,
+            yEntry,
+            drawing.color ?? '#ffffff',
+            labelHorizontalAlign,
+            labelVerticalAlign,
+          );
+
+          drawTextLabel(
+            ctx,
+            `Stop ${stopPrice.toFixed(4)}`,
+            xLeft,
+            xRight,
+            yStop,
+            '#ef5350',
+            'right',
+            'top',
+          );
+
+          if (targetY != null) {
+            drawTextLabel(
+              ctx,
+              `Target ${targetPrice.toFixed(4)}`,
+              xLeft,
+              xRight,
+              targetY,
+              '#26a69a',
+              'right',
+              'bottom',
+            );
+          }
+
+          ctx.restore();
+        }
+      }
+
+      if (showPriceLabels && drawing.type !== 'hline') {
+        drawing.points.forEach((point) => {
+          const coords = projectPoint(point);
+          if (!coords) return;
+
+          drawTextLabel(
+            ctx,
+            point.price.toFixed(4),
+            coords.x - 36,
+            coords.x + 36,
+            coords.y,
+            color,
+            labelHorizontalAlign,
+            labelVerticalAlign,
+          );
         });
       }
-    }
 
-    return handles;
+      if (isHovered && !isSelected && !drawing.locked) {
+        ctx.setLineDash([]);
+        drawing.points.forEach((point) => {
+          const coords = projectPoint(point);
+          if (!coords) return;
+
+          ctx.beginPath();
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.arc(coords.x, coords.y, HANDLE_RADIUS, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        });
+      }
+
+      if (isSelected && !drawing.locked) {
+        ctx.setLineDash([]);
+        drawing.points.forEach((point) => {
+          const coords = projectPoint(point);
+          if (!coords) return;
+
+          ctx.beginPath();
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2.5;
+          ctx.arc(coords.x, coords.y, HANDLE_RADIUS + 1, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        });
+      }
+
+      ctx.restore();
+    });
+  }, [drawWidth, isDrawingVisibleOnTimeframe, projectPoint, series]);
+
+  const selectedHandles = useMemo(() => {
+    if (activeTool !== 'cursor' || currentDrawIdRef.current) return [];
+    if (!selectedDrawingId) return [];
+
+    const drawing = drawings.find((item) => item.id === selectedDrawingId);
+    if (!drawing || drawing.locked || !isDrawingVisibleOnTimeframe(drawing)) return [];
+
+    return drawing.points
+      .map((point, pointIndex) => {
+        const coords = projectPoint(point);
+        if (!coords) return null;
+
+        return {
+          drawingId: drawing.id,
+          pointIndex,
+          x: coords.x,
+          y: coords.y,
+          color: drawing.color || '#2962FF',
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
   }, [
     activeTool,
     drawings,
@@ -899,7 +856,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
   useEffect(() => {
     renderDrawings();
     bumpOverlay();
-  }, [drawings, selectedDrawingId, timeframe, currentDrawIdRef, renderDrawings, bumpOverlay]);
+  }, [drawings, selectedDrawingId, timeframe, renderDrawings, bumpOverlay]);
 
   useEffect(() => {
     let frame1 = 0;
@@ -938,147 +895,48 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
   }, [bumpOverlay, renderDrawings]);
 
   useEffect(() => {
-    if (!draggingHandle && !draggingDrawing) return;
-
-    const handlePointerMove = (event: PointerEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      
-      const canvasPoint = getCanvasPointFromClient(event.clientX, event.clientY);
-      if (!canvasPoint) return;
-
-      if (draggingHandle) {
-        const drawing = drawingsRef.current.find((item) => item.id === draggingHandle.drawingId);
-        if (!drawing || drawing.locked) return;
-
-        const nextPoint = toChartPoint(
-          canvasPoint.x,
-          canvasPoint.y,
-          drawing.points[0],
-        );
-
-        if (!nextPoint) return;
-
-        const logical = chart.timeScale().coordinateToLogical(canvasPoint.x);
-        const nextPointWithLogical = {
-          ...nextPoint,
-          logical: logical != null ? Number(logical) : nextPoint.logical,
-        };
-
-        const nextPoints = drawing.points.map((point, index) =>
-          index === draggingHandle.pointIndex ? nextPointWithLogical : point,
-        );
-
-        useChartStore.getState().updateDrawing(draggingHandle.drawingId, {
-          points: nextPoints,
-        });
-
-        renderDrawings();
-        bumpOverlay();
-        return;
-      }
-
-      if (draggingDrawing) {
-        const drawing = drawingsRef.current.find((item) => item.id === draggingDrawing.drawingId);
-        const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
-        if (!anchor || !drawing) return;
-
-        const logicalDelta = anchor.logical - draggingDrawing.startLogical;
-        const priceDelta = anchor.price - draggingDrawing.startPrice;
-
-        useChartStore.getState().updateDrawing(draggingDrawing.drawingId, {
-          points: draggingDrawing.originalPoints.map((point) => ({
-            time: point.time + Math.round(logicalDelta * (drawing.baseTimeframe ?? timeframe)),
-            price: point.price + priceDelta,
-            logical:
-              typeof point.logical === 'number'
-                ? point.logical + logicalDelta
-                : logicalDelta,
-          })),
-        });
-
-        renderDrawings();
-        bumpOverlay();
-      }
-    };
-
-    const stopDragging = () => {
-      setDraggingHandle(null);
-      setDraggingDrawing(null);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove, { capture: true });
-    window.addEventListener('pointerup', stopDragging, { capture: true });
-    window.addEventListener('pointercancel', stopDragging, { capture: true });
-
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove, { capture: true });
-      window.removeEventListener('pointerup', stopDragging, { capture: true });
-      window.removeEventListener('pointercancel', stopDragging, { capture: true });
-    };
-  }, [
-    draggingDrawing,
-    draggingHandle,
-    getCanvasPointFromClient,
-    timeframe,
-    toChartPoint,
-    toLogicalPricePoint,
-    chart,
-    renderDrawings,
-    bumpOverlay,
-  ]);
-
-  useEffect(() => {
     const host = containerRef.current?.parentElement;
     if (!host) return;
 
     const handlePointerDown = (event: PointerEvent) => {
-      const isDrawingPhase = activeToolRef.current !== 'cursor' && currentDrawIdRef.current;
-      const isCursorMode = activeToolRef.current === 'cursor';
-
-      if (!isDrawingPhase && !isCursorMode) return;
+      if (activeToolRef.current !== 'cursor') return;
       if (draggingHandle || draggingDrawing) return;
 
       const canvasPoint = getCanvasPointFromClient(event.clientX, event.clientY);
       if (!canvasPoint) return;
 
       const handleHit = findHandleAt(canvasPoint.x, canvasPoint.y);
-      if (handleHit) {
-        const drawing = drawingsRef.current.find((item) => item.id === handleHit.drawingId);
-        if (drawing && !drawing.locked) {
-          event.preventDefault();
-          event.stopPropagation();
-          setDraggingHandle(handleHit);
-          return;
-        }
-      }
+      if (handleHit) return;
 
-      if (isCursorMode) {
-        const drawingId = findDrawingAt(canvasPoint.x, canvasPoint.y);
-        if (drawingId) {
-          const drawing = drawingsRef.current.find((item) => item.id === drawingId);
-          if (drawing && !drawing.locked) {
-            const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
-            if (anchor) {
-              event.preventDefault();
-              event.stopPropagation();
-              setDraggingDrawing({
-                drawingId,
-                startLogical: anchor.logical,
-                startPrice: anchor.price,
-                originalPoints: drawing.points.map((p) => ({ ...p })),
-              });
-            }
-          }
-          return;
-        }
-      }
+      const drawingId = findDrawingAt(canvasPoint.x, canvasPoint.y);
+      if (!drawingId) return;
+
+      const drawing = drawingsRef.current.find((item) => item.id === drawingId);
+      if (!drawing || drawing.locked || !isDrawingVisibleOnTimeframe(drawing)) return;
+
+      const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
+      if (!anchor) return;
+
+      syncSelection(drawingId);
+      suppressNextClickRef.current = false;
+      setDraggingDrawing({
+        drawingId,
+        startLogical: anchor.logical,
+        startPrice: anchor.price,
+        originalPoints: drawing.points.map((point) => ({
+          ...point,
+          logical: getPointLogical(point) ?? point.logical,
+        })),
+      });
+
+      event.preventDefault();
+      event.stopPropagation();
     };
 
-    host.addEventListener('pointerdown', handlePointerDown, { capture: true });
+    host.addEventListener('pointerdown', handlePointerDown, true);
 
     return () => {
-      host.removeEventListener('pointerdown', handlePointerDown, { capture: true });
+      host.removeEventListener('pointerdown', handlePointerDown, true);
     };
   }, [
     draggingDrawing,
@@ -1124,6 +982,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         return;
       }
 
+      // Drawing creation
       if (!currentDrawIdRef.current) {
         const firstPoint = toChartPoint(param.point.x, param.point.y);
         if (!firstPoint) return;
@@ -1157,8 +1016,10 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       const nextPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
       if (!nextPoint) return;
 
+      // For RR tool, add a third point (target) and keep waiting
       if (tool === 'rr') {
         if (existing.points.length === 1) {
+          // Second click: set stop level
           const nextPointWithLogical = {
             ...nextPoint,
             logical: typeof nextPoint.logical === 'number' ? nextPoint.logical : undefined,
@@ -1168,6 +1029,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           });
           return;
         } else if (existing.points.length === 2) {
+          // Third click: set target level
           const nextPointWithLogical = {
             ...nextPoint,
             logical: typeof nextPoint.logical === 'number' ? nextPoint.logical : undefined,
@@ -1184,6 +1046,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         }
       }
 
+      // For other tools (trendline, rect, fib, ray)
       useChartStore.getState().updateDrawing(id, {
         points: [...existing.points.slice(0, 1), nextPoint],
       });
@@ -1208,27 +1071,27 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const previewPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
         if (!previewPoint) return;
 
+        // For RR tool, preserve all previous points during preview
         if (tool === 'rr') {
           if (existing.points.length === 1) {
+            // Preview stop level (2nd point)
             useChartStore.getState().updateDrawing(id, {
               points: [existing.points[0], previewPoint],
             });
           } else if (existing.points.length === 2) {
+            // Preview target level (3rd point) - keep entry & stop, update target
             useChartStore.getState().updateDrawing(id, {
               points: [existing.points[0], existing.points[1], previewPoint],
             });
           }
-          renderDrawings();
-          bumpOverlay();
           return;
         }
 
+        // For other tools, replace only the 2nd point
         useChartStore.getState().updateDrawing(id, {
           points: [existing.points[0], previewPoint],
         });
 
-        renderDrawings();
-        bumpOverlay();
         return;
       }
 
@@ -1274,9 +1137,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     if (!draggingHandle && !draggingDrawing) return;
 
     const handlePointerMove = (event: PointerEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      
       const canvasPoint = getCanvasPointFromClient(event.clientX, event.clientY);
       if (!canvasPoint) return;
 
@@ -1287,11 +1147,12 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const nextPoint = toChartPoint(
           canvasPoint.x,
           canvasPoint.y,
-          drawing.points[0],
+          drawing.points[draggingHandle.pointIndex],
         );
 
         if (!nextPoint) return;
 
+        // Preserve logical coordinate
         const logical = chart.timeScale().coordinateToLogical(canvasPoint.x);
         const nextPointWithLogical = {
           ...nextPoint,
@@ -1302,12 +1163,11 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           index === draggingHandle.pointIndex ? nextPointWithLogical : point,
         );
 
+        suppressNextClickRef.current = true;
         useChartStore.getState().updateDrawing(draggingHandle.drawingId, {
           points: nextPoints,
         });
 
-        renderDrawings();
-        bumpOverlay();
         return;
       }
 
@@ -1319,6 +1179,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const logicalDelta = anchor.logical - draggingDrawing.startLogical;
         const priceDelta = anchor.price - draggingDrawing.startPrice;
 
+        suppressNextClickRef.current = true;
         useChartStore.getState().updateDrawing(draggingDrawing.drawingId, {
           points: draggingDrawing.originalPoints.map((point) => ({
             time: point.time + Math.round(logicalDelta * (drawing.baseTimeframe ?? timeframe)),
@@ -1329,9 +1190,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
                 : logicalDelta,
           })),
         });
-
-        renderDrawings();
-        bumpOverlay();
       }
     };
 
@@ -1340,14 +1198,14 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       setDraggingDrawing(null);
     };
 
-    window.addEventListener('pointermove', handlePointerMove, { capture: true });
-    window.addEventListener('pointerup', stopDragging, { capture: true });
-    window.addEventListener('pointercancel', stopDragging, { capture: true });
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopDragging);
+    window.addEventListener('pointercancel', stopDragging);
 
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove, { capture: true });
-      window.removeEventListener('pointerup', stopDragging, { capture: true });
-      window.removeEventListener('pointercancel', stopDragging, { capture: true });
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopDragging);
+      window.removeEventListener('pointercancel', stopDragging);
     };
   }, [
     draggingDrawing,
@@ -1357,8 +1215,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     toChartPoint,
     toLogicalPricePoint,
     chart,
-    renderDrawings,
-    bumpOverlay,
   ]);
 
   useEffect(() => {
