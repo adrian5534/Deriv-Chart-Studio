@@ -5,6 +5,7 @@ import { useDerivWebSocket, CandleData } from '../../hooks/use-deriv-websocket';
 import DrawingOverlay from './DrawingOverlay';
 import DrawingSettingsPanel from './DrawingSettingsPanel';
 import RiskRewardTool from './RiskRewardTool';
+import AlertPopup from './AlertPopup';
 
 export interface ChartRef {
   getChart: () => IChartApi | null;
@@ -20,6 +21,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
   const [isReady, setIsReady] = useState(false);
   const [overlayRedrawKey, setOverlayRedrawKey] = useState(0);
+  const [triggeredAlert, setTriggeredAlert] = useState<{ symbol: string; price: number; condition: string } | null>(null);
 
   // --- Multi-timeframe replay alignment ---
   const [pendingRange, setPendingRange] = useState<{from: number, to: number} | null>(null);
@@ -161,6 +163,8 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
         // ignore
       }
     },
+
+    onAlertTriggered: (alert) => setTriggeredAlert(alert),
   });
 
   useEffect(() => {
@@ -295,6 +299,11 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
           </div>
         </>
       )}
+
+      <AlertPopup 
+        alert={triggeredAlert} 
+        onClose={() => setTriggeredAlert(null)} 
+      />
     </div>
   );
 });

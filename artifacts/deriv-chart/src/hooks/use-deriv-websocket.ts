@@ -14,6 +14,7 @@ export interface CandleData {
 interface UseDerivWebSocketProps {
   onHistoricalData: (data: CandleData[]) => void;
   onLiveUpdate: (data: CandleData) => void;
+  onAlertTriggered?: (alert: { symbol: string; price: number; condition: string }) => void;
 }
 
 const playAlertSound = () => {
@@ -38,10 +39,11 @@ const playAlertSound = () => {
   }
 };
 
-export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWebSocketProps) {
+export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTriggered }: UseDerivWebSocketProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const subscriptionIdRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggeredAlertsRef = useRef<Set<string>>(new Set()); // Track triggered alerts to prevent repeats
 
   const symbol = useChartStore(s => s.symbol);
   const timeframe = useChartStore(s => s.timeframe);
@@ -66,23 +68,42 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
         (alert.condition === 'below' && price <= alert.price);
 
       if (triggered) {
-        // Show notification
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification(`Alert: ${sym}`, {
-            body: `Price reached ${alert.price}`,
-            icon: '/favicon.ico',
-          });
-        }
+        const alertKey = `${alert.id}-${alert.price}`;
+        
+        // Only trigger once per alert
+        if (!triggeredAlertsRef.current.has(alertKey)) {
+          triggeredAlertsRef.current.add(alertKey);
 
-        // Play sound if enabled
-        if (alert.soundEnabled) {
-          playAlertSound();
+          // Play sound if enabled
+          if (alert.soundEnabled) {
+            playAlertSound();
+          }
+
+          // Emit alert event to show popup
+          if (onAlertTriggered) {
+            onAlertTriggered({
+              symbol: sym,
+              price: alert.price,
+              condition: alert.condition,
+            });
+          }
+
+          // Show OS notification
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`Alert: ${sym}`, {
+              body: `Price reached ${alert.price}`,
+              icon: '/favicon.ico',
+            });
+          }
         }
       }
     }
-  }, []);
+  }, [onAlertTriggered]);
 
   const subscribeToAsset = useCallback(() => {
+    // Clear triggered alerts when changing asset
+    triggeredAlertsRef.current.clear();
+
     // Unsubscribe previous stream
     if (subscriptionIdRef.current) {
       sendMsg({ forget: subscriptionIdRef.current });
@@ -125,7 +146,6 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
         }
 
         if (data.msg_type === 'candles') {
-          // Historical candle batch
           const candles: CandleData[] = (data.candles || []).map((c: any) => ({
             time: Number(c.epoch) as UTCTimestamp,
             open: parseFloat(c.open),
@@ -139,7 +159,6 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
           onHistoricalData(candles);
         }
         else if (data.msg_type === 'ohlc') {
-          // Live candle tick — update the latest candle
           const c = data.ohlc;
           const liveCandle: CandleData = {
             time: Number(c.open_time) as UTCTimestamp,
@@ -151,7 +170,6 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
           const closePrice = parseFloat(c.close);
           setLivePrice(closePrice);
 
-          // Check and trigger alerts
           checkAndTriggerAlerts(closePrice, symbol);
 
           if (!replayActive) {
@@ -165,7 +183,6 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
 
     ws.onclose = () => {
       setConnectionStatus('disconnected');
-      // Auto-reconnect after 3s
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = setTimeout(connect, 3000);
     };
@@ -175,7 +192,6 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
     };
   }, [symbol, timeframe, subscribeToAsset, setConnectionStatus, setLivePrice, replayActive, onHistoricalData, onLiveUpdate, checkAndTriggerAlerts]);
 
-  // Initial connect
   useEffect(() => {
     connect();
     return () => {
@@ -190,14 +206,12 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
     };
   }, []);
 
-  // Re-subscribe when symbol or timeframe changes
   useEffect(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       subscribeToAsset();
     }
   }, [symbol, timeframe, subscribeToAsset]);
 
-  // Load a batch of historical candles for chart replay mode
   const loadReplayCandles = useCallback((date: string): Promise<CandleData[]> => {
     return new Promise((resolve) => {
       if (wsRef.current?.readyState !== WebSocket.OPEN) {
