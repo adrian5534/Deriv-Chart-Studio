@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { ASSETS } from '../lib/deriv-constants';
 import { CandleData } from '../hooks/use-deriv-websocket';
 
-export type DrawingTool = 'cursor' | 'trendline' | 'hline' | 'fib' | 'rect' | 'ray' | 'rr';
+export type DrawingTool = 'cursor' | 'trendline' | 'hline' | 'fib' | 'rect' | 'ray' | 'rrLong' | 'rrShort';
 export type DrawingLineStyle = 'solid' | 'dashed' | 'dotted';
 
 export interface Point {
@@ -32,6 +32,7 @@ export type Drawing = {
   lineStyle?: DrawingLineStyle;
   fillOpacity?: number;
   rrMultiplier?: number;
+  rrType?: 'long' | 'short';
   showPriceLabels?: boolean;
   fibLabelMode?: FibLabelMode;
   labelHorizontalAlign?: DrawingLabelHorizontalAlign;
@@ -133,12 +134,12 @@ function normalizeDrawing(
 ): Drawing {
   return {
     ...drawing,
-    color: drawing.color || DEFAULT_DRAWING_STYLE.color,
+    color: drawing.color || (drawing.rrType === 'long' ? '#26a69a' : drawing.rrType === 'short' ? '#ef5350' : DEFAULT_DRAWING_STYLE.color),
     lineWidth: clampLineWidth(drawing.lineWidth),
     lineStyle: drawing.lineStyle || DEFAULT_DRAWING_STYLE.lineStyle,
     fillOpacity: clampFillOpacity(drawing.fillOpacity),
     locked: drawing.locked ?? DEFAULT_DRAWING_STYLE.locked,
-    showPriceLabels: drawing.showPriceLabels ?? drawing.type === 'hline',
+    showPriceLabels: drawing.showPriceLabels ?? (drawing.type === 'hline' || drawing.type === 'rr'),
     fibLabelMode: drawing.fibLabelMode ?? 'percent',
     labelHorizontalAlign: drawing.labelHorizontalAlign ?? 'right',
     labelVerticalAlign: drawing.labelVerticalAlign ?? 'top',

@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer2, TrendingUp, Minus, Square, Divide, ArrowUpRight, Type, Trash2 } from 'lucide-react';
+import { MousePointer2, TrendingUp, Minus, Square, Divide, ArrowUpRight, ArrowDownRight, Type, Trash2 } from 'lucide-react';
 import { useChartStore, DrawingTool } from '../../store/use-chart-store';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -9,7 +9,8 @@ const tools: { id: DrawingTool; icon: React.ReactNode; label: string }[] = [
   { id: 'hline', icon: <Minus size={18} />, label: 'Horizontal Line' },
   { id: 'fib', icon: <Divide size={18} />, label: 'Fibonacci Retracement' },
   { id: 'rect', icon: <Square size={18} />, label: 'Rectangle' },
-  { id: 'rr', icon: <ArrowUpRight size={18} />, label: 'Risk / Reward' },
+  { id: 'rrLong', icon: <ArrowUpRight size={18} />, label: 'Risk / Reward (Long)' },
+  { id: 'rrShort', icon: <ArrowDownRight size={18} />, label: 'Risk / Reward (Short)' },
 ];
 
 export default function LeftToolbar() {

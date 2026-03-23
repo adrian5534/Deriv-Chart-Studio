@@ -989,7 +989,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
 
         useChartStore.getState().addDrawing({
           id,
-          type: tool,
+          type: tool === 'rrLong' || tool === 'rrShort' ? 'rr' : tool,
           points: [firstPoint],
           baseTimeframe: timeframe,
         });
@@ -1014,7 +1014,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       if (!nextPoint) return;
 
       // For RR tool, add a third point (target) and keep waiting
-      if (tool === 'rr') {
+      if (tool === 'rrLong' || tool === 'rrShort') {
         if (existing.points.length === 1) {
           // Second click: set stop level
           useChartStore.getState().updateDrawing(id, {
