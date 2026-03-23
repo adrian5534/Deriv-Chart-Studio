@@ -964,7 +964,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           id,
           type: tool,
           points: [firstPoint],
-          baseTimeframe: timeframe, // Save current timeframe
         });
 
         syncSelection(null);
@@ -1074,15 +1073,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
 
         if (!nextPoint) return;
 
-        // Preserve logical coordinate
-        const logical = chart.timeScale().coordinateToLogical(canvasPoint.x);
-        const nextPointWithLogical = {
-          ...nextPoint,
-          logical: logical != null ? Number(logical) : nextPoint.logical,
-        };
-
         const nextPoints = drawing.points.map((point, index) =>
-          index === draggingHandle.pointIndex ? nextPointWithLogical : point,
+          index === draggingHandle.pointIndex ? nextPoint : point,
         );
 
         suppressNextClickRef.current = true;
@@ -1103,7 +1095,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         suppressNextClickRef.current = true;
         useChartStore.getState().updateDrawing(draggingDrawing.drawingId, {
           points: draggingDrawing.originalPoints.map((point) => ({
-            time: point.time + Math.round(logicalDelta * (drawing?.baseTimeframe ?? timeframe)),
+            time: point.time + Math.round(logicalDelta * timeframe),
             price: point.price + priceDelta,
             logical:
               typeof point.logical === 'number'
@@ -1135,7 +1127,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     timeframe,
     toChartPoint,
     toLogicalPricePoint,
-    chart,
   ]);
 
   useEffect(() => {
