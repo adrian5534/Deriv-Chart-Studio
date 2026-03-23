@@ -277,7 +277,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       return {
         time: directTime,
         price,
-        logical: nextLogical, // Always store logical
+        logical: nextLogical,
       };
     }
 
@@ -293,7 +293,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     return {
       time: referencePoint.time + Math.round((nextLogical - referenceLogical) * timeframe),
       price,
-      logical: nextLogical, // Always store logical
+      logical: nextLogical,
     };
   }, [chart, getPointLogical, series, timeframe]);
 
@@ -327,20 +327,29 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     const items = [...drawingsRef.current].reverse();
 
     for (const drawing of items) {
-      if (drawing.locked || !isDrawingVisibleOnTimeframe(drawing)) continue;
+      if (drawing.locked) continue;
 
-      for (let i = drawing.points.length - 1; i >= 0; i -= 1) {
-        const coords = projectPoint(drawing.points[i]);
+      for (let i = 0; i < drawing.points.length; i++) {
+        const point = drawing.points[i];
+        const coords = projectPoint(point);
+
         if (!coords) continue;
 
-        if (distance(x, y, coords.x, coords.y) <= HANDLE_RADIUS + HIT_DISTANCE) {
-          return { drawingId: drawing.id, pointIndex: i };
+        const dx = coords.x - x;
+        const dy = coords.y - y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist <= HANDLE_RADIUS + 4) {
+          return {
+            drawingId: drawing.id,
+            pointIndex: i,
+          };
         }
       }
     }
 
     return null;
-  }, [isDrawingVisibleOnTimeframe, projectPoint]);
+  }, [projectPoint]);
 
   const findDrawingAt = useCallback((x: number, y: number) => {
     const canvas = canvasRef.current;
@@ -441,7 +450,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           }
         }
       } else if (drawing.type === 'rr' && drawing.points.length >= 2) {
-        // Risk:Reward hit detection (no canvas drawing here)
         const entryPoint = drawing.points[0];
         const stopPoint = drawing.points[1];
         const rrMultiplier = drawing.rrMultiplier ?? 1;
@@ -449,7 +457,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const pEntry = projectPoint(entryPoint);
         const pStop = projectPoint(stopPoint);
         if (pEntry && pStop) {
-          // compute default target price using multiplier:
           const entryPrice = entryPoint.price;
           const stopPrice = stopPoint.price;
           const targetPrice = entryPrice + (entryPrice - stopPrice) * rrMultiplier;
@@ -458,7 +465,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const yStop = pStop.y;
           const targetY = series.priceToCoordinate(targetPrice);
 
-          // check proximity to entry/stop/target lines
           if (Math.abs(y - yEntry) <= HIT_DISTANCE || Math.abs(y - yStop) <= HIT_DISTANCE) {
             return drawing.id;
           }
@@ -467,7 +473,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
             return drawing.id;
           }
 
-          // check if inside the red risk area between entry and stop
           const redTop = Math.min(yEntry, yStop);
           const redBottom = Math.max(yEntry, yStop);
           if (y >= redTop - HIT_DISTANCE && y <= redBottom + HIT_DISTANCE) {
@@ -509,7 +514,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       renderDrawing(ctx, drawing, width, height, maxX);
     });
 
-    // Render preview for drawing in progress
     const currentDrawId = currentDrawIdRef.current;
     if (currentDrawId) {
       const drawing = drawingsRef.current.find((d) => d.id === currentDrawId);
@@ -666,7 +670,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         });
       }
     } else if (drawing.type === 'rr' && drawing.points.length >= 2) {
-      // Risk:Reward rendering — entry, stop, target (3 points total)
       const entryPoint = drawing.points[0];
       const stopPoint = drawing.points[1];
       const targetPoint = drawing.points[2];
@@ -680,7 +683,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const stopPrice = stopPoint.price;
         const risk = Math.abs(entryPrice - stopPrice);
         
-        // Use explicit target or calculate from multiplier
         let targetPrice = entryPrice;
         if (pTarget && targetPoint) {
           targetPrice = targetPoint.price;
@@ -693,13 +695,11 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const yStop = pStop.y;
         const targetY = series.priceToCoordinate(targetPrice);
 
-        // Get left and right X coordinates from points
         const minX = Math.min(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
         const maxRRX = Math.max(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
         const xLeft = minX;
         const xRight = maxRRX;
 
-        // Determine red/green areas
         const redTop = Math.min(yEntry, yStop);
         const redBottom = Math.max(yEntry, yStop);
 
@@ -707,38 +707,32 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const greenTop = Math.min(yEntry, targetY);
           const greenBottom = Math.max(yEntry, targetY);
 
-          // Draw green fill
           ctx.save();
           ctx.fillStyle = hexToRgba('#34D399', 0.12);
           ctx.fillRect(xLeft, greenTop, Math.max(40, xRight - xLeft), Math.max(1, greenBottom - greenTop));
           ctx.restore();
         }
 
-        // Draw red fill
         ctx.save();
         ctx.fillStyle = hexToRgba('#EF5350', 0.12);
         ctx.fillRect(xLeft, redTop, Math.max(40, xRight - xLeft), Math.max(1, redBottom - redTop));
         ctx.restore();
 
-        // Draw lines
         ctx.save();
         ctx.lineWidth = baseLineWidth;
 
-        // Entry line (bounded)
         ctx.strokeStyle = drawing.color ?? '#ffffff';
         ctx.beginPath();
         ctx.moveTo(xLeft, yEntry);
         ctx.lineTo(xRight, yEntry);
         ctx.stroke();
 
-        // Stop line (bounded)
         ctx.strokeStyle = '#ef5350';
         ctx.beginPath();
         ctx.moveTo(xLeft, yStop);
         ctx.lineTo(xRight, yStop);
         ctx.stroke();
 
-        // Target line (bounded)
         if (targetY != null) {
           ctx.strokeStyle = '#26a69a';
           ctx.beginPath();
@@ -747,7 +741,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           ctx.stroke();
         }
 
-        // Labels
         const rewardAbs = Math.abs(targetPrice - entryPrice);
         const rrVal = risk > 0 ? rewardAbs / risk : NaN;
         const rrLabel = isFinite(rrVal) ? `RR ${rrVal.toFixed(2)}` : 'RR —';
@@ -845,26 +838,55 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
   }, [projectPoint, series]);
 
   const selectedHandles = useMemo(() => {
-    if (activeTool !== 'cursor' || currentDrawIdRef.current) return [];
-    if (!selectedDrawingId) return [];
+    const handles: Array<{
+      drawingId: string;
+      pointIndex: number;
+      x: number;
+      y: number;
+      color: string;
+    }> = [];
 
-    const drawing = drawings.find((item) => item.id === selectedDrawingId);
-    if (!drawing || drawing.locked || !isDrawingVisibleOnTimeframe(drawing)) return [];
+    // Show handles for selected drawing in cursor mode
+    if (activeTool === 'cursor' && !currentDrawIdRef.current) {
+      if (selectedDrawingId) {
+        const drawing = drawings.find((item) => item.id === selectedDrawingId);
+        if (drawing && !drawing.locked && isDrawingVisibleOnTimeframe(drawing)) {
+          drawing.points.forEach((point, pointIndex) => {
+            const coords = projectPoint(point);
+            if (coords) {
+              handles.push({
+                drawingId: drawing.id,
+                pointIndex,
+                x: coords.x,
+                y: coords.y,
+                color: drawing.color || '#2962FF',
+              });
+            }
+          });
+        }
+      }
+    }
 
-    return drawing.points
-      .map((point, pointIndex) => {
-        const coords = projectPoint(point);
-        if (!coords) return null;
+    // Show handles for drawing in progress
+    if (currentDrawIdRef.current) {
+      const drawing = drawings.find((item) => item.id === currentDrawIdRef.current);
+      if (drawing && !drawing.locked && isDrawingVisibleOnTimeframe(drawing)) {
+        drawing.points.forEach((point, pointIndex) => {
+          const coords = projectPoint(point);
+          if (coords) {
+            handles.push({
+              drawingId: drawing.id,
+              pointIndex,
+              x: coords.x,
+              y: coords.y,
+              color: drawing.color || '#2962FF',
+            });
+          }
+        });
+      }
+    }
 
-        return {
-          drawingId: drawing.id,
-          pointIndex,
-          x: coords.x,
-          y: coords.y,
-          color: drawing.color || '#2962FF',
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => item !== null);
+    return handles;
   }, [
     activeTool,
     drawings,
@@ -920,38 +942,42 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     if (!host) return;
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (activeToolRef.current !== 'cursor') return;
+      const isDrawingPhase = activeToolRef.current !== 'cursor' && currentDrawIdRef.current;
+      const isCursorMode = activeToolRef.current === 'cursor';
+
+      if (!isDrawingPhase && !isCursorMode) return;
       if (draggingHandle || draggingDrawing) return;
 
       const canvasPoint = getCanvasPointFromClient(event.clientX, event.clientY);
       if (!canvasPoint) return;
 
       const handleHit = findHandleAt(canvasPoint.x, canvasPoint.y);
-      if (handleHit) return;
+      if (handleHit) {
+        const drawing = drawingsRef.current.find((item) => item.id === handleHit.drawingId);
+        if (drawing && !drawing.locked) {
+          setDraggingHandle(handleHit);
+          return;
+        }
+      }
 
-      const drawingId = findDrawingAt(canvasPoint.x, canvasPoint.y);
-      if (!drawingId) return;
-
-      const drawing = drawingsRef.current.find((item) => item.id === drawingId);
-      if (!drawing || drawing.locked || !isDrawingVisibleOnTimeframe(drawing)) return;
-
-      const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
-      if (!anchor) return;
-
-      syncSelection(drawingId);
-      suppressNextClickRef.current = false;
-      setDraggingDrawing({
-        drawingId,
-        startLogical: anchor.logical,
-        startPrice: anchor.price,
-        originalPoints: drawing.points.map((point) => ({
-          ...point,
-          logical: getPointLogical(point) ?? point.logical,
-        })),
-      });
-
-      event.preventDefault();
-      event.stopPropagation();
+      if (isCursorMode) {
+        const drawingId = findDrawingAt(canvasPoint.x, canvasPoint.y);
+        if (drawingId) {
+          const drawing = drawingsRef.current.find((item) => item.id === drawingId);
+          if (drawing && !drawing.locked) {
+            const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
+            if (anchor) {
+              setDraggingDrawing({
+                drawingId,
+                startLogical: anchor.logical,
+                startPrice: anchor.price,
+                originalPoints: drawing.points.map((p) => ({ ...p })),
+              });
+            }
+          }
+          return;
+        }
+      }
     };
 
     host.addEventListener('pointerdown', handlePointerDown, true);
@@ -1003,7 +1029,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         return;
       }
 
-      // Drawing creation
       if (!currentDrawIdRef.current) {
         const firstPoint = toChartPoint(param.point.x, param.point.y);
         if (!firstPoint) return;
@@ -1037,10 +1062,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       const nextPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
       if (!nextPoint) return;
 
-      // For RR tool, add a third point (target) and keep waiting
       if (tool === 'rr') {
         if (existing.points.length === 1) {
-          // Second click: set stop level
           const nextPointWithLogical = {
             ...nextPoint,
             logical: typeof nextPoint.logical === 'number' ? nextPoint.logical : undefined,
@@ -1050,7 +1073,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           });
           return;
         } else if (existing.points.length === 2) {
-          // Third click: set target level
           const nextPointWithLogical = {
             ...nextPoint,
             logical: typeof nextPoint.logical === 'number' ? nextPoint.logical : undefined,
@@ -1067,7 +1089,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         }
       }
 
-      // For other tools (trendline, rect, fib, ray)
       useChartStore.getState().updateDrawing(id, {
         points: [...existing.points.slice(0, 1), nextPoint],
       });
@@ -1092,15 +1113,12 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const previewPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
         if (!previewPoint) return;
 
-        // For RR tool, preserve all previous points during preview
         if (tool === 'rr') {
           if (existing.points.length === 1) {
-            // Preview stop level (2nd point)
             useChartStore.getState().updateDrawing(id, {
               points: [existing.points[0], previewPoint],
             });
           } else if (existing.points.length === 2) {
-            // Preview target level (3rd point) - keep entry & stop, update target
             useChartStore.getState().updateDrawing(id, {
               points: [existing.points[0], existing.points[1], previewPoint],
             });
@@ -1110,7 +1128,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           return;
         }
 
-        // For other tools, replace only the 2nd point
         useChartStore.getState().updateDrawing(id, {
           points: [existing.points[0], previewPoint],
         });
@@ -1172,12 +1189,11 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const nextPoint = toChartPoint(
           canvasPoint.x,
           canvasPoint.y,
-          drawing.points[draggingHandle.pointIndex],
+          drawing.points[0],
         );
 
         if (!nextPoint) return;
 
-        // Preserve logical coordinate
         const logical = chart.timeScale().coordinateToLogical(canvasPoint.x);
         const nextPointWithLogical = {
           ...nextPoint,
@@ -1193,6 +1209,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           points: nextPoints,
         });
 
+        renderDrawings();
+        bumpOverlay();
         return;
       }
 
@@ -1215,6 +1233,9 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
                 : logicalDelta,
           })),
         });
+
+        renderDrawings();
+        bumpOverlay();
       }
     };
 
@@ -1240,6 +1261,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     toChartPoint,
     toLogicalPricePoint,
     chart,
+    renderDrawings,
+    bumpOverlay,
   ]);
 
   useEffect(() => {
