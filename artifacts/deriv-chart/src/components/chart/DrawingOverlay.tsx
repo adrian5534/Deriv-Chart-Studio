@@ -346,8 +346,9 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     const canvas = canvasRef.current;
     if (!canvas) return null;
 
-    const maxX = drawWidth(canvas);
     const items = [...drawingsRef.current].reverse();
+    const maxX = drawWidth(canvas);
+    const height = canvas.clientHeight;
 
     for (const drawing of items) {
       if (!isDrawingVisibleOnTimeframe(drawing) || drawing.points.length === 0) continue;
@@ -374,7 +375,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const xEnd = dx === 0 ? p2.x : maxX;
           const yEnd =
             dx === 0
-              ? (dy >= 0 ? canvas.clientHeight : 0)
+              ? (dy >= 0 ? height : 0)
               : p1.y + ((xEnd - p1.x) / dx) * dy;
 
           if (distanceToSegment(x, y, p1.x, p1.y, xEnd, yEnd) <= HIT_DISTANCE) {
@@ -642,97 +643,106 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           });
         }
       } else if (drawing.type === 'rr' && drawing.points.length >= 2) {
-        // Risk:Reward rendering
+        // Risk:Reward rendering — entry, stop, target (3 points total)
         const entryPoint = drawing.points[0];
         const stopPoint = drawing.points[1];
-        const rrMultiplier = drawing.rrMultiplier ?? 1;
+        const targetPoint = drawing.points[2];
 
         const pEntry = projectPoint(entryPoint);
         const pStop = projectPoint(stopPoint);
+        const pTarget = targetPoint ? projectPoint(targetPoint) : null;
+
         if (pEntry && pStop) {
-          // compute default target price using multiplier:
           const entryPrice = entryPoint.price;
           const stopPrice = stopPoint.price;
-          const risk = entryPrice - stopPrice; // can be negative for some directions
-          // target = entry + (-risk) * multiplier  => reward = (entry - stop) * multiplier directionally reversed
-          const targetPrice = entryPrice + (entryPrice - stopPrice) * rrMultiplier;
+          const risk = Math.abs(entryPrice - stopPrice);
+          
+          // Use explicit target or calculate from multiplier
+          let targetPrice = entryPrice;
+          if (pTarget && targetPoint) {
+            targetPrice = targetPoint.price;
+          } else {
+            const rrMultiplier = drawing.rrMultiplier ?? 1;
+            targetPrice = entryPrice + (entryPrice - stopPrice) * rrMultiplier;
+          }
 
           const yEntry = pEntry.y;
           const yStop = pStop.y;
           const targetY = series.priceToCoordinate(targetPrice);
 
-          // determine red/green spans (y coordinates)
-          // red area between entry and stop
+          // Get left and right X coordinates from points (bounded, not full width)
+          const xLeft = Math.min(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
+          const xRight = Math.max(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
+
+          // Determine red/green areas
           const redTop = Math.min(yEntry, yStop);
           const redBottom = Math.max(yEntry, yStop);
 
-          // green area between entry and target
           if (targetY != null) {
             const greenTop = Math.min(yEntry, targetY);
             const greenBottom = Math.max(yEntry, targetY);
 
-            // draw green fill
+            // Draw green fill
             ctx.save();
-            ctx.fillStyle = hexToRgba('#34D399', 0.12); // green tint
-            ctx.fillRect(0, greenTop, maxX, Math.max(1, greenBottom - greenTop));
+            ctx.fillStyle = hexToRgba('#34D399', 0.12);
+            ctx.fillRect(xLeft, greenTop, Math.max(1, xRight - xLeft), Math.max(1, greenBottom - greenTop));
             ctx.restore();
           }
 
-          // draw red fill
+          // Draw red fill
           ctx.save();
-          ctx.fillStyle = hexToRgba('#EF5350', 0.12); // red tint
-          ctx.fillRect(0, redTop, maxX, Math.max(1, redBottom - redTop));
+          ctx.fillStyle = hexToRgba('#EF5350', 0.12);
+          ctx.fillRect(xLeft, redTop, Math.max(1, xRight - xLeft), Math.max(1, redBottom - redTop));
           ctx.restore();
 
-          // draw lines for entry / stop / target
+          // Draw lines
           ctx.save();
           ctx.lineWidth = baseLineWidth;
-          // entry line (neutral / white)
+
+          // Entry line (bounded)
           ctx.strokeStyle = drawing.color ?? '#ffffff';
           ctx.beginPath();
-          ctx.moveTo(0, yEntry);
-          ctx.lineTo(maxX, yEntry);
+          ctx.moveTo(xLeft, yEntry);
+          ctx.lineTo(xRight, yEntry);
           ctx.stroke();
 
-          // stop line (red)
+          // Stop line (bounded)
           ctx.strokeStyle = '#ef5350';
           ctx.beginPath();
-          ctx.moveTo(0, yStop);
-          ctx.lineTo(maxX, yStop);
+          ctx.moveTo(xLeft, yStop);
+          ctx.lineTo(xRight, yStop);
           ctx.stroke();
 
+          // Target line (bounded)
           if (targetY != null) {
             ctx.strokeStyle = '#26a69a';
             ctx.beginPath();
-            ctx.moveTo(0, targetY);
-            ctx.lineTo(maxX, targetY);
+            ctx.moveTo(xLeft, targetY);
+            ctx.lineTo(xRight, targetY);
             ctx.stroke();
           }
 
-          // labels: price labels and RR
-          const riskAbs = Math.abs(entryPrice - stopPrice);
+          // Labels
           const rewardAbs = Math.abs(targetPrice - entryPrice);
-          const rrVal = riskAbs > 0 ? rewardAbs / riskAbs : NaN;
+          const rrVal = risk > 0 ? rewardAbs / risk : NaN;
           const rrLabel = isFinite(rrVal) ? `RR ${rrVal.toFixed(2)}` : 'RR —';
 
-          // draw small boxed labels near the entry line
           drawTextLabel(
             ctx,
             `${entryPrice.toFixed(4)} ${rrLabel}`,
-            0,
-            maxX,
+            xLeft,
+            xRight,
             yEntry,
             drawing.color ?? '#ffffff',
             labelHorizontalAlign,
             labelVerticalAlign,
           );
 
-          // stop/target price labels
           drawTextLabel(
             ctx,
-            stopPoint.price.toFixed(4),
-            0,
-            maxX,
+            `Stop ${stopPrice.toFixed(4)}`,
+            xLeft,
+            xRight,
             yStop,
             '#ef5350',
             'right',
@@ -742,9 +752,9 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           if (targetY != null) {
             drawTextLabel(
               ctx,
-              targetPrice.toFixed(4),
-              0,
-              maxX,
+              `Target ${targetPrice.toFixed(4)}`,
+              xLeft,
+              xRight,
               targetY,
               '#26a69a',
               'right',
@@ -785,6 +795,22 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;
           ctx.arc(coords.x, coords.y, HANDLE_RADIUS, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        });
+      }
+
+      if (isSelected && !drawing.locked) {
+        ctx.setLineDash([]);
+        drawing.points.forEach((point) => {
+          const coords = projectPoint(point);
+          if (!coords) return;
+
+          ctx.beginPath();
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2.5;
+          ctx.arc(coords.x, coords.y, HANDLE_RADIUS + 1, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
         });
@@ -953,6 +979,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         return;
       }
 
+      // Drawing creation
       if (!currentDrawIdRef.current) {
         const firstPoint = toChartPoint(param.point.x, param.point.y);
         if (!firstPoint) return;
@@ -964,7 +991,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           id,
           type: tool,
           points: [firstPoint],
-          baseTimeframe: timeframe, // Save current timeframe
+          baseTimeframe: timeframe,
         });
 
         syncSelection(null);
@@ -983,11 +1010,34 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       const existing = drawingsRef.current.find((drawing) => drawing.id === id);
       if (!existing || existing.points.length === 0) return;
 
-      const secondPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
-      if (!secondPoint) return;
+      const nextPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
+      if (!nextPoint) return;
 
+      // For RR tool, add a third point (target) and keep waiting
+      if (tool === 'rr') {
+        if (existing.points.length === 1) {
+          // Second click: set stop level
+          useChartStore.getState().updateDrawing(id, {
+            points: [...existing.points, nextPoint],
+          });
+          return;
+        } else if (existing.points.length === 2) {
+          // Third click: set target level
+          useChartStore.getState().updateDrawing(id, {
+            points: [...existing.points, nextPoint],
+          });
+          currentDrawIdRef.current = null;
+          useChartStore.getState().setActiveTool('cursor');
+          syncSelection(null);
+          renderDrawings();
+          bumpOverlay();
+          return;
+        }
+      }
+
+      // For other tools (trendline, rect, fib, ray)
       useChartStore.getState().updateDrawing(id, {
-        points: [...existing.points.slice(0, 1), secondPoint],
+        points: [...existing.points.slice(0, 1), nextPoint],
       });
 
       currentDrawIdRef.current = null;
