@@ -1071,6 +1071,23 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const previewPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
         if (!previewPoint) return;
 
+        // For RR tool, preserve all previous points during preview
+        if (tool === 'rr') {
+          if (existing.points.length === 1) {
+            // Preview stop level (2nd point)
+            useChartStore.getState().updateDrawing(id, {
+              points: [existing.points[0], previewPoint],
+            });
+          } else if (existing.points.length === 2) {
+            // Preview target level (3rd point) - keep entry & stop, update target
+            useChartStore.getState().updateDrawing(id, {
+              points: [existing.points[0], existing.points[1], previewPoint],
+            });
+          }
+          return;
+        }
+
+        // For other tools, replace only the 2nd point
         useChartStore.getState().updateDrawing(id, {
           points: [existing.points[0], previewPoint],
         });
