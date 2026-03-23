@@ -40,6 +40,8 @@ function formatDrawingType(type: string) {
       return 'Rectangle';
     case 'ray':
       return 'Ray';
+    case 'rr':
+      return 'Risk:Reward';
     default:
       return type;
   }
@@ -100,7 +102,7 @@ export default function DrawingSettingsPanel() {
   };
 
   return (
-    <div className="absolute right-3 top-3 bottom-3 z-20 w-80 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900/95 p-3 text-xs text-white shadow-xl backdrop-blur">
+    <div className="absolute right-3 top-3 bottom-3 z-20 w-80 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900/95 p-3 text-xs text-white shadow-xl backdrop-blur resize" style={{ resize: 'both' }}>
       <div className="mb-3 flex items-start justify-between gap-2">
         <div>
           <div className="font-semibold">{formatDrawingType(drawing.type)}</div>
