@@ -500,18 +500,68 @@ export default function DrawingSettingsPanel() {
             <div className="mb-2 text-slate-300">Risk:Reward</div>
 
             <label className="block mb-2">
-              <span className="mb-1 block text-slate-300">Reward multiplier</span>
+              <span className="mb-1 block text-slate-300">Entry Price</span>
               <input
                 type="number"
-                step="0.1"
-                min={0}
-                value={drawing.rrMultiplier ?? 1}
-                onChange={(event) =>
-                  updateSelectedDrawing({ rrMultiplier: Number(event.target.value) })
-                }
+                step="0.0001"
+                value={drawing.points[0]?.price ?? 0}
+                onChange={(event) => {
+                  const newPrice = Number(event.target.value);
+                  const points = [...drawing.points];
+                  if (points[0]) points[0] = { ...points[0], price: newPrice };
+                  updateSelectedDrawing({ points });
+                }}
                 className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"
               />
             </label>
+
+            <label className="block mb-2">
+              <span className="mb-1 block text-slate-300">Stop Price</span>
+              <input
+                type="number"
+                step="0.0001"
+                value={drawing.points[1]?.price ?? 0}
+                onChange={(event) => {
+                  const newPrice = Number(event.target.value);
+                  const points = [...drawing.points];
+                  if (points[1]) points[1] = { ...points[1], price: newPrice };
+                  updateSelectedDrawing({ points });
+                }}
+                className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"
+              />
+            </label>
+
+            {drawing.points.length >= 3 ? (
+              <label className="block mb-2">
+                <span className="mb-1 block text-slate-300">Target Price</span>
+                <input
+                  type="number"
+                  step="0.0001"
+                  value={drawing.points[2]?.price ?? 0}
+                  onChange={(event) => {
+                    const newPrice = Number(event.target.value);
+                    const points = [...drawing.points];
+                    if (points[2]) points[2] = { ...points[2], price: newPrice };
+                    updateSelectedDrawing({ points });
+                  }}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"
+                />
+              </label>
+            ) : (
+              <label className="block mb-2">
+                <span className="mb-1 block text-slate-300">Reward Multiplier</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min={0}
+                  value={drawing.rrMultiplier ?? 1}
+                  onChange={(event) =>
+                    updateSelectedDrawing({ rrMultiplier: Number(event.target.value) })
+                  }
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-white"
+                />
+              </label>
+            )}
 
             <label className="flex items-center justify-between rounded border border-slate-700 px-3 py-2">
               <span className="text-slate-300">Show price labels</span>
