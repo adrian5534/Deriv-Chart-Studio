@@ -506,322 +506,343 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     drawingsRef.current.forEach((drawing) => {
       if (!drawing.points.length || !isDrawingVisibleOnTimeframe(drawing)) return;
 
-      const color = drawing.color || '#2962FF';
-      const isSelected = drawing.id === selectedDrawingIdRef.current;
-      const isHovered = drawing.id === hoveredDrawingIdRef.current;
-      const baseLineWidth = drawing.lineWidth || 2;
-      const showPriceLabels = drawing.showPriceLabels ?? drawing.type === 'hline';
-      const labelHorizontalAlign = drawing.labelHorizontalAlign ?? 'right';
-      const labelVerticalAlign = drawing.labelVerticalAlign ?? 'top';
-      const fibLabelMode: FibLabelMode = drawing.fibLabelMode ?? 'percent';
+      renderDrawing(ctx, drawing, width, height, maxX);
+    });
 
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = isSelected ? baseLineWidth + 0.5 : isHovered ? baseLineWidth + 0.25 : baseLineWidth;
-      applyLineStyle(ctx, drawing.lineStyle || 'solid');
-
-      if (drawing.type === 'trendline' && drawing.points.length >= 2) {
-        const p1 = projectPoint(drawing.points[0]);
-        const p2 = projectPoint(drawing.points[1]);
-
-        if (p1 && p2) {
-          ctx.beginPath();
-          ctx.moveTo(p1.x, p1.y);
-          ctx.lineTo(p2.x, p2.y);
-          ctx.stroke();
-        }
-      } else if (drawing.type === 'ray' && drawing.points.length >= 2) {
-        const p1 = projectPoint(drawing.points[0]);
-        const p2 = projectPoint(drawing.points[1]);
-
-        if (p1 && p2) {
-          const dx = p2.x - p1.x;
-          const dy = p2.y - p1.y;
-
-          ctx.beginPath();
-          ctx.moveTo(p1.x, p1.y);
-
-          if (dx === 0) {
-            const yEnd = dy >= 0 ? height : 0;
-            ctx.lineTo(p1.x, yEnd);
-          } else {
-            const xEnd = maxX;
-            const yEnd = p1.y + ((xEnd - p1.x) / dx) * dy;
-            ctx.lineTo(xEnd, yEnd);
-          }
-
-          ctx.stroke();
-        }
-      } else if (drawing.type === 'hline' && drawing.points.length >= 1) {
-        const y1 = series.priceToCoordinate(drawing.points[0].price);
-
-        if (y1 != null) {
-          ctx.beginPath();
-          ctx.moveTo(0, y1);
-          ctx.lineTo(maxX, y1);
-          ctx.stroke();
-
-          if (showPriceLabels) {
-            drawTextLabel(
-              ctx,
-              drawing.points[0].price.toFixed(4),
-              0,
-              maxX,
-              y1,
-              color,
-              labelHorizontalAlign,
-              labelVerticalAlign,
-            );
-          }
-        }
-      } else if (drawing.type === 'rect' && drawing.points.length >= 2) {
-        const p1 = projectPoint(drawing.points[0]);
-        const p2 = projectPoint(drawing.points[1]);
-
-        if (p1 && p2) {
-          const left = Math.min(p1.x, p2.x);
-          const top = Math.min(p1.y, p2.y);
-          const rectWidth = Math.abs(p2.x - p1.x);
-          const rectHeight = Math.abs(p2.y - p1.y);
-
-          ctx.fillStyle = hexToRgba(color, drawing.fillOpacity ?? 0.12);
-          ctx.fillRect(left, top, rectWidth, rectHeight);
-          ctx.strokeRect(left, top, rectWidth, rectHeight);
-        }
-      } else if (drawing.type === 'fib' && drawing.points.length >= 2) {
-        const fibReverse = (drawing as any).fibReverse ?? false;
-        const fromPoint = fibReverse ? drawing.points[1] : drawing.points[0];
-        const toPoint = fibReverse ? drawing.points[0] : drawing.points[1];
-        const p1 = projectPoint(fromPoint);
-        const p2 = projectPoint(toPoint);
-
-        if (p1 && p2) {
-          const levels = getVisibleFibLevels(drawing);
-          const diff = p2.y - p1.y;
-          const priceDiff = toPoint.price - fromPoint.price;
-          const minX = Math.min(p1.x, p2.x);
-          const maxAnchorX = Math.max(p1.x, p2.x);
-          const lineStartX = (drawing as any).fibExtendLeft ? 0 : minX;
-          const lineEndX = (drawing as any).fibExtendRight === false ? maxAnchorX : maxX;
-          const showFibLabels = (drawing as any).fibShowLabels !== false;
-
-          ctx.beginPath();
-          ctx.strokeStyle = color;
-          ctx.setLineDash([]);
-          ctx.moveTo(p1.x, p1.y);
-          ctx.lineTo(p2.x, p2.y);
-          ctx.stroke();
-
-          levels.forEach((level: { value: number; label?: string; color?: string; lineStyle?: DrawingLineStyle }) => {
-            const y = p1.y + diff * level.value;
-            const priceAtLevel = fromPoint.price + priceDiff * level.value;
-            const labelText =
-              fibLabelMode === 'price'
-                ? priceAtLevel.toFixed(4)
-                : level.label || `${(level.value * 100).toFixed(1)}%`;
-
-            ctx.beginPath();
-            ctx.strokeStyle = level.color || color;
-            ctx.lineWidth = baseLineWidth;
-            applyLineStyle(ctx, level.lineStyle || drawing.lineStyle || 'solid');
-            ctx.moveTo(lineStartX, y);
-            ctx.lineTo(lineEndX, y);
-            ctx.stroke();
-
-            if (showFibLabels) {
-              drawTextLabel(
-                ctx,
-                labelText,
-                lineStartX,
-                lineEndX,
-                y,
-                level.color || color,
-                labelHorizontalAlign,
-                labelVerticalAlign,
-              );
-            }
-          });
-        }
-      } else if (drawing.type === 'rr' && drawing.points.length >= 2) {
-        // Risk:Reward rendering — entry, stop, target (3 points total)
-        const entryPoint = drawing.points[0];
-        const stopPoint = drawing.points[1];
-        const targetPoint = drawing.points[2];
-
-        const pEntry = projectPoint(entryPoint);
-        const pStop = projectPoint(stopPoint);
-        const pTarget = targetPoint ? projectPoint(targetPoint) : null;
-
-        if (pEntry && pStop) {
-          const entryPrice = entryPoint.price;
-          const stopPrice = stopPoint.price;
-          const risk = Math.abs(entryPrice - stopPrice);
-          
-          // Use explicit target or calculate from multiplier
-          let targetPrice = entryPrice;
-          if (pTarget && targetPoint) {
-            targetPrice = targetPoint.price;
-          } else {
-            const rrMultiplier = drawing.rrMultiplier ?? 1;
-            targetPrice = entryPrice + (entryPrice - stopPrice) * rrMultiplier;
-          }
-
-          const yEntry = pEntry.y;
-          const yStop = pStop.y;
-          const targetY = series.priceToCoordinate(targetPrice);
-
-          // Get left and right X coordinates from points with 20px padding for handles
-          const minX = Math.min(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
-          const maxX = Math.max(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
-          const xLeft = minX;
-          const xRight = maxX;
-          const boxWidth = Math.max(40, xRight - xLeft); // Minimum width for visibility
-
-          // Determine red/green areas
-          const redTop = Math.min(yEntry, yStop);
-          const redBottom = Math.max(yEntry, yStop);
-
-          if (targetY != null) {
-            const greenTop = Math.min(yEntry, targetY);
-            const greenBottom = Math.max(yEntry, targetY);
-
-            // Draw green fill
-            ctx.save();
-            ctx.fillStyle = hexToRgba('#34D399', 0.12);
-            ctx.fillRect(xLeft, greenTop, boxWidth, Math.max(1, greenBottom - greenTop));
-            ctx.restore();
-          }
-
-          // Draw red fill
-          ctx.save();
-          ctx.fillStyle = hexToRgba('#EF5350', 0.12);
-          ctx.fillRect(xLeft, redTop, boxWidth, Math.max(1, redBottom - redTop));
-          ctx.restore();
-
-          // Draw lines
-          ctx.save();
-          ctx.lineWidth = baseLineWidth;
-
-          // Entry line (bounded)
-          ctx.strokeStyle = drawing.color ?? '#ffffff';
-          ctx.beginPath();
-          ctx.moveTo(xLeft, yEntry);
-          ctx.lineTo(xRight, yEntry);
-          ctx.stroke();
-
-          // Stop line (bounded)
-          ctx.strokeStyle = '#ef5350';
-          ctx.beginPath();
-          ctx.moveTo(xLeft, yStop);
-          ctx.lineTo(xRight, yStop);
-          ctx.stroke();
-
-          // Target line (bounded)
-          if (targetY != null) {
-            ctx.strokeStyle = '#26a69a';
-            ctx.beginPath();
-            ctx.moveTo(xLeft, targetY);
-            ctx.lineTo(xRight, targetY);
-            ctx.stroke();
-          }
-
-          // Labels
-          const rewardAbs = Math.abs(targetPrice - entryPrice);
-          const rrVal = risk > 0 ? rewardAbs / risk : NaN;
-          const rrLabel = isFinite(rrVal) ? `RR ${rrVal.toFixed(2)}` : 'RR —';
-
-          drawTextLabel(
-            ctx,
-            `${entryPrice.toFixed(4)} ${rrLabel}`,
-            xLeft,
-            xRight,
-            yEntry,
-            drawing.color ?? '#ffffff',
-            labelHorizontalAlign,
-            labelVerticalAlign,
-          );
-
-          drawTextLabel(
-            ctx,
-            `Stop ${stopPrice.toFixed(4)}`,
-            xLeft,
-            xRight,
-            yStop,
-            '#ef5350',
-            'right',
-            'top',
-          );
-
-          if (targetY != null) {
-            drawTextLabel(
-              ctx,
-              `Target ${targetPrice.toFixed(4)}`,
-              xLeft,
-              xRight,
-              targetY,
-              '#26a69a',
-              'right',
-              'bottom',
-            );
-          }
-
-          ctx.restore();
-        }
+    // Render preview for drawing in progress
+    const currentDrawId = currentDrawIdRef.current;
+    if (currentDrawId) {
+      const drawing = drawingsRef.current.find((d) => d.id === currentDrawId);
+      if (drawing) {
+        ctx.save();
+        ctx.globalAlpha = 0.6;
+        renderDrawing(ctx, drawing, width, height, maxX);
+        ctx.restore();
       }
+    }
+  }, [drawWidth, isDrawingVisibleOnTimeframe]);
 
-      if (showPriceLabels && drawing.type !== 'hline') {
-        drawing.points.forEach((point) => {
-          const coords = projectPoint(point);
-          if (!coords) return;
+  const renderDrawing = useCallback((
+    ctx: CanvasRenderingContext2D,
+    drawing: Drawing,
+    width: number,
+    height: number,
+    maxX: number,
+  ) => {
+    const color = drawing.color || '#2962FF';
+    const isSelected = drawing.id === selectedDrawingIdRef.current;
+    const isHovered = drawing.id === hoveredDrawingIdRef.current;
+    const baseLineWidth = drawing.lineWidth || 2;
+    const showPriceLabels = drawing.showPriceLabels ?? drawing.type === 'hline';
+    const labelHorizontalAlign = drawing.labelHorizontalAlign ?? 'right';
+    const labelVerticalAlign = drawing.labelVerticalAlign ?? 'top';
+    const fibLabelMode: FibLabelMode = drawing.fibLabelMode ?? 'percent';
 
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = isSelected ? baseLineWidth + 0.5 : isHovered ? baseLineWidth + 0.25 : baseLineWidth;
+    applyLineStyle(ctx, drawing.lineStyle || 'solid');
+
+    if (drawing.type === 'trendline' && drawing.points.length >= 2) {
+      const p1 = projectPoint(drawing.points[0]);
+      const p2 = projectPoint(drawing.points[1]);
+
+      if (p1 && p2) {
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
+    } else if (drawing.type === 'ray' && drawing.points.length >= 2) {
+      const p1 = projectPoint(drawing.points[0]);
+      const p2 = projectPoint(drawing.points[1]);
+
+      if (p1 && p2) {
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+
+        if (dx === 0) {
+          const yEnd = dy >= 0 ? height : 0;
+          ctx.lineTo(p1.x, yEnd);
+        } else {
+          const xEnd = maxX;
+          const yEnd = p1.y + ((xEnd - p1.x) / dx) * dy;
+          ctx.lineTo(xEnd, yEnd);
+        }
+
+        ctx.stroke();
+      }
+    } else if (drawing.type === 'hline' && drawing.points.length >= 1) {
+      const y1 = series.priceToCoordinate(drawing.points[0].price);
+
+      if (y1 != null) {
+        ctx.beginPath();
+        ctx.moveTo(0, y1);
+        ctx.lineTo(maxX, y1);
+        ctx.stroke();
+
+        if (showPriceLabels) {
           drawTextLabel(
             ctx,
-            point.price.toFixed(4),
-            coords.x - 36,
-            coords.x + 36,
-            coords.y,
+            drawing.points[0].price.toFixed(4),
+            0,
+            maxX,
+            y1,
             color,
             labelHorizontalAlign,
             labelVerticalAlign,
           );
-        });
+        }
       }
+    } else if (drawing.type === 'rect' && drawing.points.length >= 2) {
+      const p1 = projectPoint(drawing.points[0]);
+      const p2 = projectPoint(drawing.points[1]);
 
-      if (isHovered && !isSelected && !drawing.locked) {
+      if (p1 && p2) {
+        const left = Math.min(p1.x, p2.x);
+        const top = Math.min(p1.y, p2.y);
+        const rectWidth = Math.abs(p2.x - p1.x);
+        const rectHeight = Math.abs(p2.y - p1.y);
+
+        ctx.fillStyle = hexToRgba(color, drawing.fillOpacity ?? 0.12);
+        ctx.fillRect(left, top, rectWidth, rectHeight);
+        ctx.strokeRect(left, top, rectWidth, rectHeight);
+      }
+    } else if (drawing.type === 'fib' && drawing.points.length >= 2) {
+      const fibReverse = (drawing as any).fibReverse ?? false;
+      const fromPoint = fibReverse ? drawing.points[1] : drawing.points[0];
+      const toPoint = fibReverse ? drawing.points[0] : drawing.points[1];
+      const p1 = projectPoint(fromPoint);
+      const p2 = projectPoint(toPoint);
+
+      if (p1 && p2) {
+        const levels = getVisibleFibLevels(drawing);
+        const diff = p2.y - p1.y;
+        const priceDiff = toPoint.price - fromPoint.price;
+        const minX = Math.min(p1.x, p2.x);
+        const maxAnchorX = Math.max(p1.x, p2.x);
+        const lineStartX = (drawing as any).fibExtendLeft ? 0 : minX;
+        const lineEndX = (drawing as any).fibExtendRight === false ? maxAnchorX : maxX;
+        const showFibLabels = (drawing as any).fibShowLabels !== false;
+
+        ctx.beginPath();
+        ctx.strokeStyle = color;
         ctx.setLineDash([]);
-        drawing.points.forEach((point) => {
-          const coords = projectPoint(point);
-          if (!coords) return;
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+
+        levels.forEach((level: { value: number; label?: string; color?: string; lineStyle?: DrawingLineStyle }) => {
+          const y = p1.y + diff * level.value;
+          const priceAtLevel = fromPoint.price + priceDiff * level.value;
+          const labelText =
+            fibLabelMode === 'price'
+              ? priceAtLevel.toFixed(4)
+              : level.label || `${(level.value * 100).toFixed(1)}%`;
 
           ctx.beginPath();
-          ctx.fillStyle = '#ffffff';
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 2;
-          ctx.arc(coords.x, coords.y, HANDLE_RADIUS, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.strokeStyle = level.color || color;
+          ctx.lineWidth = baseLineWidth;
+          applyLineStyle(ctx, level.lineStyle || drawing.lineStyle || 'solid');
+          ctx.moveTo(lineStartX, y);
+          ctx.lineTo(lineEndX, y);
           ctx.stroke();
+
+          if (showFibLabels) {
+            drawTextLabel(
+              ctx,
+              labelText,
+              lineStartX,
+              lineEndX,
+              y,
+              level.color || color,
+              labelHorizontalAlign,
+              labelVerticalAlign,
+            );
+          }
         });
       }
+    } else if (drawing.type === 'rr' && drawing.points.length >= 2) {
+      // Risk:Reward rendering — entry, stop, target (3 points total)
+      const entryPoint = drawing.points[0];
+      const stopPoint = drawing.points[1];
+      const targetPoint = drawing.points[2];
 
-      if (isSelected && !drawing.locked) {
-        ctx.setLineDash([]);
-        drawing.points.forEach((point) => {
-          const coords = projectPoint(point);
-          if (!coords) return;
+      const pEntry = projectPoint(entryPoint);
+      const pStop = projectPoint(stopPoint);
+      const pTarget = targetPoint ? projectPoint(targetPoint) : null;
 
+      if (pEntry && pStop) {
+        const entryPrice = entryPoint.price;
+        const stopPrice = stopPoint.price;
+        const risk = Math.abs(entryPrice - stopPrice);
+        
+        // Use explicit target or calculate from multiplier
+        let targetPrice = entryPrice;
+        if (pTarget && targetPoint) {
+          targetPrice = targetPoint.price;
+        } else {
+          const rrMultiplier = drawing.rrMultiplier ?? 1;
+          targetPrice = entryPrice + (entryPrice - stopPrice) * rrMultiplier;
+        }
+
+        const yEntry = pEntry.y;
+        const yStop = pStop.y;
+        const targetY = series.priceToCoordinate(targetPrice);
+
+        // Get left and right X coordinates from points
+        const minX = Math.min(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
+        const maxRRX = Math.max(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
+        const xLeft = minX;
+        const xRight = maxRRX;
+
+        // Determine red/green areas
+        const redTop = Math.min(yEntry, yStop);
+        const redBottom = Math.max(yEntry, yStop);
+
+        if (targetY != null) {
+          const greenTop = Math.min(yEntry, targetY);
+          const greenBottom = Math.max(yEntry, targetY);
+
+          // Draw green fill
+          ctx.save();
+          ctx.fillStyle = hexToRgba('#34D399', 0.12);
+          ctx.fillRect(xLeft, greenTop, Math.max(40, xRight - xLeft), Math.max(1, greenBottom - greenTop));
+          ctx.restore();
+        }
+
+        // Draw red fill
+        ctx.save();
+        ctx.fillStyle = hexToRgba('#EF5350', 0.12);
+        ctx.fillRect(xLeft, redTop, Math.max(40, xRight - xLeft), Math.max(1, redBottom - redTop));
+        ctx.restore();
+
+        // Draw lines
+        ctx.save();
+        ctx.lineWidth = baseLineWidth;
+
+        // Entry line (bounded)
+        ctx.strokeStyle = drawing.color ?? '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(xLeft, yEntry);
+        ctx.lineTo(xRight, yEntry);
+        ctx.stroke();
+
+        // Stop line (bounded)
+        ctx.strokeStyle = '#ef5350';
+        ctx.beginPath();
+        ctx.moveTo(xLeft, yStop);
+        ctx.lineTo(xRight, yStop);
+        ctx.stroke();
+
+        // Target line (bounded)
+        if (targetY != null) {
+          ctx.strokeStyle = '#26a69a';
           ctx.beginPath();
-          ctx.fillStyle = '#ffffff';
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 2.5;
-          ctx.arc(coords.x, coords.y, HANDLE_RADIUS + 1, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.moveTo(xLeft, targetY);
+          ctx.lineTo(xRight, targetY);
           ctx.stroke();
-        });
-      }
+        }
 
-      ctx.restore();
-    });
-  }, [drawWidth, isDrawingVisibleOnTimeframe, projectPoint, series]);
+        // Labels
+        const rewardAbs = Math.abs(targetPrice - entryPrice);
+        const rrVal = risk > 0 ? rewardAbs / risk : NaN;
+        const rrLabel = isFinite(rrVal) ? `RR ${rrVal.toFixed(2)}` : 'RR —';
+
+        drawTextLabel(
+          ctx,
+          `${entryPrice.toFixed(4)} ${rrLabel}`,
+          xLeft,
+          xRight,
+          yEntry,
+          drawing.color ?? '#ffffff',
+          labelHorizontalAlign,
+          labelVerticalAlign,
+        );
+
+        drawTextLabel(
+          ctx,
+          `Stop ${stopPrice.toFixed(4)}`,
+          xLeft,
+          xRight,
+          yStop,
+          '#ef5350',
+          'right',
+          'top',
+        );
+
+        if (targetY != null) {
+          drawTextLabel(
+            ctx,
+            `Target ${targetPrice.toFixed(4)}`,
+            xLeft,
+            xRight,
+            targetY,
+            '#26a69a',
+            'right',
+            'bottom',
+          );
+        }
+
+        ctx.restore();
+      }
+    }
+
+    if (showPriceLabels && drawing.type !== 'hline') {
+      drawing.points.forEach((point) => {
+        const coords = projectPoint(point);
+        if (!coords) return;
+
+        drawTextLabel(
+          ctx,
+          point.price.toFixed(4),
+          coords.x - 36,
+          coords.x + 36,
+          coords.y,
+          color,
+          labelHorizontalAlign,
+          labelVerticalAlign,
+        );
+      });
+    }
+
+    if (isHovered && !isSelected && !drawing.locked) {
+      ctx.setLineDash([]);
+      drawing.points.forEach((point) => {
+        const coords = projectPoint(point);
+        if (!coords) return;
+
+        ctx.beginPath();
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.arc(coords.x, coords.y, HANDLE_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+    }
+
+    if (isSelected && !drawing.locked) {
+      ctx.setLineDash([]);
+      drawing.points.forEach((point) => {
+        const coords = projectPoint(point);
+        if (!coords) return;
+
+        ctx.beginPath();
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.5;
+        ctx.arc(coords.x, coords.y, HANDLE_RADIUS + 1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+    }
+
+    ctx.restore();
+  }, [projectPoint, series]);
 
   const selectedHandles = useMemo(() => {
     if (activeTool !== 'cursor' || currentDrawIdRef.current) return [];
