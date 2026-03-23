@@ -1094,8 +1094,9 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       }
 
       if (draggingDrawing) {
+        const drawing = drawingsRef.current.find((item) => item.id === draggingDrawing.drawingId);
         const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
-        if (!anchor) return;
+        if (!anchor || !drawing) return;
 
         const logicalDelta = anchor.logical - draggingDrawing.startLogical;
         const priceDelta = anchor.price - draggingDrawing.startPrice;
@@ -1103,7 +1104,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         suppressNextClickRef.current = true;
         useChartStore.getState().updateDrawing(draggingDrawing.drawingId, {
           points: draggingDrawing.originalPoints.map((point) => ({
-            time: point.time + Math.round(logicalDelta * (drawing?.baseTimeframe ?? timeframe)),
+            time: point.time + Math.round(logicalDelta * (drawing.baseTimeframe ?? timeframe)),
             price: point.price + priceDelta,
             logical:
               typeof point.logical === 'number'
