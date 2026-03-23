@@ -277,7 +277,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       return {
         time: directTime,
         price,
-        logical: nextLogical,
+        logical: nextLogical, // Always store logical
       };
     }
 
@@ -293,7 +293,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     return {
       time: referencePoint.time + Math.round((nextLogical - referenceLogical) * timeframe),
       price,
-      logical: nextLogical,
+      logical: nextLogical, // Always store logical
     };
   }, [chart, getPointLogical, series, timeframe]);
 
@@ -670,9 +670,12 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const yStop = pStop.y;
           const targetY = series.priceToCoordinate(targetPrice);
 
-          // Get left and right X coordinates from points (bounded, not full width)
-          const xLeft = Math.min(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
-          const xRight = Math.max(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
+          // Get left and right X coordinates from points with 20px padding for handles
+          const minX = Math.min(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
+          const maxX = Math.max(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
+          const xLeft = minX;
+          const xRight = maxX;
+          const boxWidth = Math.max(40, xRight - xLeft); // Minimum width for visibility
 
           // Determine red/green areas
           const redTop = Math.min(yEntry, yStop);
@@ -685,14 +688,14 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
             // Draw green fill
             ctx.save();
             ctx.fillStyle = hexToRgba('#34D399', 0.12);
-            ctx.fillRect(xLeft, greenTop, Math.max(1, xRight - xLeft), Math.max(1, greenBottom - greenTop));
+            ctx.fillRect(xLeft, greenTop, boxWidth, Math.max(1, greenBottom - greenTop));
             ctx.restore();
           }
 
           // Draw red fill
           ctx.save();
           ctx.fillStyle = hexToRgba('#EF5350', 0.12);
-          ctx.fillRect(xLeft, redTop, Math.max(1, xRight - xLeft), Math.max(1, redBottom - redTop));
+          ctx.fillRect(xLeft, redTop, boxWidth, Math.max(1, redBottom - redTop));
           ctx.restore();
 
           // Draw lines
@@ -1017,14 +1020,22 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       if (tool === 'rr') {
         if (existing.points.length === 1) {
           // Second click: set stop level
+          const nextPointWithLogical = {
+            ...nextPoint,
+            logical: typeof nextPoint.logical === 'number' ? nextPoint.logical : undefined,
+          };
           useChartStore.getState().updateDrawing(id, {
-            points: [...existing.points, nextPoint],
+            points: [...existing.points, nextPointWithLogical],
           });
           return;
         } else if (existing.points.length === 2) {
           // Third click: set target level
+          const nextPointWithLogical = {
+            ...nextPoint,
+            logical: typeof nextPoint.logical === 'number' ? nextPoint.logical : undefined,
+          };
           useChartStore.getState().updateDrawing(id, {
-            points: [...existing.points, nextPoint],
+            points: [...existing.points, nextPointWithLogical],
           });
           currentDrawIdRef.current = null;
           useChartStore.getState().setActiveTool('cursor');
