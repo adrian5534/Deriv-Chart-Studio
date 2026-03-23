@@ -346,8 +346,9 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     const canvas = canvasRef.current;
     if (!canvas) return null;
 
-    const maxX = drawWidth(canvas);
     const items = [...drawingsRef.current].reverse();
+    const maxX = drawWidth(canvas);
+    const height = canvas.clientHeight;
 
     for (const drawing of items) {
       if (!isDrawingVisibleOnTimeframe(drawing) || drawing.points.length === 0) continue;
@@ -374,7 +375,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const xEnd = dx === 0 ? p2.x : maxX;
           const yEnd =
             dx === 0
-              ? (dy >= 0 ? canvas.clientHeight : 0)
+              ? (dy >= 0 ? height : 0)
               : p1.y + ((xEnd - p1.x) / dx) * dy;
 
           if (distanceToSegment(x, y, p1.x, p1.y, xEnd, yEnd) <= HIT_DISTANCE) {
@@ -645,7 +646,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         // Risk:Reward rendering — entry, stop, target (3 points total)
         const entryPoint = drawing.points[0];
         const stopPoint = drawing.points[1];
-        const targetPoint = drawing.points[2]; // NEW: explicit target point
+        const targetPoint = drawing.points[2];
 
         const pEntry = projectPoint(entryPoint);
         const pStop = projectPoint(stopPoint);
@@ -669,6 +670,10 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const yStop = pStop.y;
           const targetY = series.priceToCoordinate(targetPrice);
 
+          // Get left and right X coordinates from points (bounded, not full width)
+          const xLeft = Math.min(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
+          const xRight = Math.max(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
+
           // Determine red/green areas
           const redTop = Math.min(yEntry, yStop);
           const redBottom = Math.max(yEntry, yStop);
@@ -680,40 +685,40 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
             // Draw green fill
             ctx.save();
             ctx.fillStyle = hexToRgba('#34D399', 0.12);
-            ctx.fillRect(0, greenTop, maxX, Math.max(1, greenBottom - greenTop));
+            ctx.fillRect(xLeft, greenTop, Math.max(1, xRight - xLeft), Math.max(1, greenBottom - greenTop));
             ctx.restore();
           }
 
           // Draw red fill
           ctx.save();
           ctx.fillStyle = hexToRgba('#EF5350', 0.12);
-          ctx.fillRect(0, redTop, maxX, Math.max(1, redBottom - redTop));
+          ctx.fillRect(xLeft, redTop, Math.max(1, xRight - xLeft), Math.max(1, redBottom - redTop));
           ctx.restore();
 
           // Draw lines
           ctx.save();
           ctx.lineWidth = baseLineWidth;
 
-          // Entry line
+          // Entry line (bounded)
           ctx.strokeStyle = drawing.color ?? '#ffffff';
           ctx.beginPath();
-          ctx.moveTo(0, yEntry);
-          ctx.lineTo(maxX, yEntry);
+          ctx.moveTo(xLeft, yEntry);
+          ctx.lineTo(xRight, yEntry);
           ctx.stroke();
 
-          // Stop line
+          // Stop line (bounded)
           ctx.strokeStyle = '#ef5350';
           ctx.beginPath();
-          ctx.moveTo(0, yStop);
-          ctx.lineTo(maxX, yStop);
+          ctx.moveTo(xLeft, yStop);
+          ctx.lineTo(xRight, yStop);
           ctx.stroke();
 
-          // Target line
+          // Target line (bounded)
           if (targetY != null) {
             ctx.strokeStyle = '#26a69a';
             ctx.beginPath();
-            ctx.moveTo(0, targetY);
-            ctx.lineTo(maxX, targetY);
+            ctx.moveTo(xLeft, targetY);
+            ctx.lineTo(xRight, targetY);
             ctx.stroke();
           }
 
@@ -725,8 +730,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           drawTextLabel(
             ctx,
             `${entryPrice.toFixed(4)} ${rrLabel}`,
-            0,
-            maxX,
+            xLeft,
+            xRight,
             yEntry,
             drawing.color ?? '#ffffff',
             labelHorizontalAlign,
@@ -736,8 +741,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           drawTextLabel(
             ctx,
             `Stop ${stopPrice.toFixed(4)}`,
-            0,
-            maxX,
+            xLeft,
+            xRight,
             yStop,
             '#ef5350',
             'right',
@@ -748,8 +753,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
             drawTextLabel(
               ctx,
               `Target ${targetPrice.toFixed(4)}`,
-              0,
-              maxX,
+              xLeft,
+              xRight,
               targetY,
               '#26a69a',
               'right',
@@ -790,6 +795,22 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;
           ctx.arc(coords.x, coords.y, HANDLE_RADIUS, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        });
+      }
+
+      if (isSelected && !drawing.locked) {
+        ctx.setLineDash([]);
+        drawing.points.forEach((point) => {
+          const coords = projectPoint(point);
+          if (!coords) return;
+
+          ctx.beginPath();
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2.5;
+          ctx.arc(coords.x, coords.y, HANDLE_RADIUS + 1, 0, Math.PI * 2);
           ctx.fill();
           ctx.stroke();
         });
