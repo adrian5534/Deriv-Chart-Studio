@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Bell } from 'lucide-react';
+import { stopAlertSound } from '../../hooks/use-deriv-websocket';
 
 interface Alert {
   symbol: string;
@@ -23,6 +24,7 @@ export default function AlertPopup({ alert, onClose }: AlertPopupProps) {
   }, [alert]);
 
   const handleClose = () => {
+    stopAlertSound();
     setIsVisible(false);
     onClose();
   };
@@ -32,7 +34,7 @@ export default function AlertPopup({ alert, onClose }: AlertPopupProps) {
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-sm animate-in slide-in-from-bottom-4">
       <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-lg shadow-lg p-4 text-white flex items-start gap-3">
-        <Bell className="w-5 h-5 flex-shrink-0 mt-0.5" />
+        <Bell className="w-5 h-5 flex-shrink-0 mt-0.5 animate-bounce" />
         <div className="flex-1">
           <h3 className="font-bold text-sm">Price Alert Triggered!</h3>
           <p className="text-xs mt-1 opacity-90">

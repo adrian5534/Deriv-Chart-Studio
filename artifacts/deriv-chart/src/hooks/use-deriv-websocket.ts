@@ -17,8 +17,17 @@ interface UseDerivWebSocketProps {
   onAlertTriggered?: (alert: { symbol: string; price: number; condition: string }) => void;
 }
 
+let activeAudioContext: AudioContext | null = null;
+let activeOscillator: OscillatorNode | null = null;
+
 const playAlertSound = () => {
   try {
+    // Stop any existing sound
+    if (activeOscillator) {
+      activeOscillator.stop();
+      activeOscillator = null;
+    }
+
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
@@ -30,12 +39,30 @@ const playAlertSound = () => {
     oscillator.type = 'sine';
 
     gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+    // Keep sound playing until stopped externally
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 10);
 
     oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.5);
+
+    activeAudioContext = audioContext;
+    activeOscillator = oscillator;
   } catch (e) {
     console.error('Alert sound failed:', e);
+  }
+};
+
+export const stopAlertSound = () => {
+  try {
+    if (activeOscillator) {
+      activeOscillator.stop();
+      activeOscillator = null;
+    }
+    if (activeAudioContext) {
+      activeAudioContext.close();
+      activeAudioContext = null;
+    }
+  } catch (e) {
+    console.error('Stop alert sound failed:', e);
   }
 };
 
