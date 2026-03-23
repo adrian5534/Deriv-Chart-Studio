@@ -1109,6 +1109,9 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     if (!draggingHandle && !draggingDrawing) return;
 
     const handlePointerMove = (event: PointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      
       const canvasPoint = getCanvasPointFromClient(event.clientX, event.clientY);
       if (!canvasPoint) return;
 
@@ -1170,14 +1173,14 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       setDraggingDrawing(null);
     };
 
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', stopDragging);
-    window.addEventListener('pointercancel', stopDragging);
+    window.addEventListener('pointermove', handlePointerMove, { capture: true });
+    window.addEventListener('pointerup', stopDragging, { capture: true });
+    window.addEventListener('pointercancel', stopDragging, { capture: true });
 
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', stopDragging);
-      window.removeEventListener('pointercancel', stopDragging);
+      window.removeEventListener('pointermove', handlePointerMove, { capture: true });
+      window.removeEventListener('pointerup', stopDragging, { capture: true });
+      window.removeEventListener('pointercancel', stopDragging, { capture: true });
     };
   }, [
     draggingDrawing,
