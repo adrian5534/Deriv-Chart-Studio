@@ -38,6 +38,7 @@ export type Drawing = {
   labelVerticalAlign?: DrawingLabelVerticalAlign;
   visibleTimeframes?: number[] | undefined;
   locked?: boolean;
+  baseTimeframe?: number; // Store the timeframe when drawing was created
 };
 
 export interface Alert {
