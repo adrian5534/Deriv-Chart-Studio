@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -17,6 +17,7 @@ const formSchema = z.object({
   symbol: z.string().min(1, 'Symbol is required'),
   price: z.coerce.number().positive('Price must be positive'),
   condition: z.enum(['above', 'below']),
+  soundEnabled: z.boolean().default(true),
 });
 
 interface CreateAlertDialogProps {
@@ -26,6 +27,7 @@ interface CreateAlertDialogProps {
 export default function CreateAlertDialog({ onSuccess }: CreateAlertDialogProps) {
   const currentSymbol = useChartStore(s => s.symbol);
   const livePrice = useChartStore(s => s.livePrice);
+  const addAlert = useChartStore(s => s.addAlert);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -35,6 +37,7 @@ export default function CreateAlertDialog({ onSuccess }: CreateAlertDialogProps)
       symbol: currentSymbol,
       price: livePrice || 0,
       condition: 'above',
+      soundEnabled: true,
     },
   });
 
@@ -58,7 +61,16 @@ export default function CreateAlertDialog({ onSuccess }: CreateAlertDialogProps)
         Notification.requestPermission();
       }
     }
-    
+
+    // Add to local store for real-time checking
+    addAlert({
+      symbol: values.symbol,
+      price: values.price,
+      condition: values.condition,
+      soundEnabled: values.soundEnabled,
+    });
+
+    // Also send to backend
     createMutation.mutate({ data: values });
   };
 
@@ -125,6 +137,24 @@ export default function CreateAlertDialog({ onSuccess }: CreateAlertDialogProps)
             )}
           />
         </div>
+
+        <FormField
+          control={form.control}
+          name="soundEnabled"
+          render={({ field }) => (
+            <FormItem className="flex items-center justify-between rounded-lg border border-border p-3">
+              <FormLabel className="mb-0 cursor-pointer">Enable sound alert</FormLabel>
+              <FormControl>
+                <input
+                  type="checkbox"
+                  checked={field.value}
+                  onChange={field.onChange}
+                  className="w-4 h-4 rounded cursor-pointer"
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
 
         <div className="pt-4 flex justify-end">
           <Button 

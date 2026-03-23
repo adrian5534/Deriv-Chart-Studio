@@ -4,7 +4,7 @@ import { useChartStore } from '../store/use-chart-store';
 import { UTCTimestamp } from 'lightweight-charts';
 
 export interface CandleData {
-  time: UTCTimestamp;  // always a plain number — never a string or BusinessDay object
+  time: UTCTimestamp;
   open: number;
   high: number;
   low: number;
@@ -15,6 +15,28 @@ interface UseDerivWebSocketProps {
   onHistoricalData: (data: CandleData[]) => void;
   onLiveUpdate: (data: CandleData) => void;
 }
+
+const playAlertSound = () => {
+  try {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.frequency.value = 800;
+    oscillator.type = 'sine';
+
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.5);
+  } catch (e) {
+    console.error('Alert sound failed:', e);
+  }
+};
 
 export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWebSocketProps) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -30,6 +52,33 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
   const sendMsg = useCallback((msg: object) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(msg));
+    }
+  }, []);
+
+  const checkAndTriggerAlerts = useCallback((price: number, sym: string) => {
+    const { alerts } = useChartStore.getState();
+
+    for (const alert of alerts) {
+      if (alert.symbol !== sym) continue;
+
+      const triggered =
+        (alert.condition === 'above' && price >= alert.price) ||
+        (alert.condition === 'below' && price <= alert.price);
+
+      if (triggered) {
+        // Show notification
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification(`Alert: ${sym}`, {
+            body: `Price reached ${alert.price}`,
+            icon: '/favicon.ico',
+          });
+        }
+
+        // Play sound if enabled
+        if (alert.soundEnabled) {
+          playAlertSound();
+        }
+      }
     }
   }, []);
 
@@ -99,7 +148,12 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
             low: parseFloat(c.low),
             close: parseFloat(c.close),
           };
-          setLivePrice(parseFloat(c.close));
+          const closePrice = parseFloat(c.close);
+          setLivePrice(closePrice);
+
+          // Check and trigger alerts
+          checkAndTriggerAlerts(closePrice, symbol);
+
           if (!replayActive) {
             onLiveUpdate(liveCandle);
           }
@@ -119,7 +173,7 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
     ws.onerror = () => {
       setConnectionStatus('disconnected');
     };
-  }, [symbol, timeframe, subscribeToAsset, setConnectionStatus, setLivePrice, replayActive, onHistoricalData, onLiveUpdate]);
+  }, [symbol, timeframe, subscribeToAsset, setConnectionStatus, setLivePrice, replayActive, onHistoricalData, onLiveUpdate, checkAndTriggerAlerts]);
 
   // Initial connect
   useEffect(() => {
@@ -130,21 +184,20 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
         if (subscriptionIdRef.current) {
           sendMsg({ forget: subscriptionIdRef.current });
         }
-        wsRef.current.onclose = null; // prevent reconnect on intentional close
+        wsRef.current.onclose = null;
         wsRef.current.close();
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Re-subscribe when symbol or timeframe changes
   useEffect(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       subscribeToAsset();
     }
-  }, [symbol, timeframe]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [symbol, timeframe, subscribeToAsset]);
 
   // Load a batch of historical candles for chart replay mode
-  // Returns them via the onHistoricalData callback without subscribing
   const loadReplayCandles = useCallback((date: string): Promise<CandleData[]> => {
     return new Promise((resolve) => {
       if (wsRef.current?.readyState !== WebSocket.OPEN) {
@@ -153,8 +206,7 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate }: UseDerivWe
       }
 
       const startEpoch = Math.floor(new Date(date).getTime() / 1000);
-      const endEpoch = Math.floor(Date.now() / 1000); // or use latest available
-
+      const endEpoch = Math.floor(Date.now() / 1000);
       const reqId = 9999;
 
       const handler = (msg: MessageEvent) => {

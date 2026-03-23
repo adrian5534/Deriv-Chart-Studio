@@ -31,13 +31,22 @@ export type Drawing = {
   lineWidth?: number;
   lineStyle?: DrawingLineStyle;
   fillOpacity?: number;
-  rrMultiplier?: number; // default 1
+  rrMultiplier?: number;
   showPriceLabels?: boolean;
   fibLabelMode?: FibLabelMode;
   labelHorizontalAlign?: DrawingLabelHorizontalAlign;
   labelVerticalAlign?: DrawingLabelVerticalAlign;
   visibleTimeframes?: number[] | undefined;
   locked?: boolean;
+};
+
+export interface Alert {
+  id: string;
+  symbol: string;
+  price: number;
+  condition: 'above' | 'below';
+  soundEnabled: boolean;
+  createdAt: string;
 }
 
 interface ChartState {
@@ -58,6 +67,9 @@ interface ChartState {
     atr: boolean;
   };
 
+  // Alerts
+  alerts: Alert[];
+
   // Replay
   replay: {
     active: boolean;
@@ -66,6 +78,8 @@ interface ChartState {
     speed: number;
     candles: CandleData[];
     index: number;
+    startEpoch?: number;
+    startProgress?: number;
   };
 
   // Actions
@@ -84,6 +98,12 @@ interface ChartState {
   updateSelectedDrawing: (updates: Partial<Drawing>) => void;
 
   toggleIndicator: (ind: keyof ChartState['indicators']) => void;
+
+  addAlert: (alert: Omit<Alert, 'id' | 'createdAt'>) => void;
+  removeAlert: (id: string) => void;
+  updateAlert: (id: string, updates: Partial<Alert>) => void;
+  clearAlerts: () => void;
+
   setReplayState: (state: Partial<ChartState['replay']>) => void;
   stopReplay: () => void;
 }
@@ -162,6 +182,8 @@ export const useChartStore = create<ChartState>((set) => ({
     atr: false,
   },
 
+  alerts: [],
+
   replay: {
     active: false,
     date: null,
@@ -169,6 +191,8 @@ export const useChartStore = create<ChartState>((set) => ({
     speed: 500,
     candles: [],
     index: 0,
+    startEpoch: undefined,
+    startProgress: undefined,
   },
 
   setSymbol: (symbol) => set({ symbol }),
@@ -230,6 +254,35 @@ export const useChartStore = create<ChartState>((set) => ({
       indicators: { ...state.indicators, [ind]: !state.indicators[ind] },
     })),
 
+  addAlert: (alert) =>
+    set((state) => ({
+      alerts: [
+        ...state.alerts,
+        {
+          ...alert,
+          id: `alert-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    })),
+
+  removeAlert: (id) =>
+    set((state) => ({
+      alerts: state.alerts.filter((alert) => alert.id !== id),
+    })),
+
+  updateAlert: (id, updates) =>
+    set((state) => ({
+      alerts: state.alerts.map((alert) =>
+        alert.id === id ? { ...alert, ...updates } : alert,
+      ),
+    })),
+
+  clearAlerts: () =>
+    set({
+      alerts: [],
+    }),
+
   setReplayState: (updates) =>
     set((state) => ({
       replay: { ...state.replay, ...updates },
@@ -237,6 +290,15 @@ export const useChartStore = create<ChartState>((set) => ({
 
   stopReplay: () =>
     set((state) => ({
-      replay: { ...state.replay, active: false, playing: false, candles: [], index: 0, date: null },
+      replay: {
+        ...state.replay,
+        active: false,
+        playing: false,
+        candles: [],
+        index: 0,
+        date: null,
+        startEpoch: undefined,
+        startProgress: undefined,
+      },
     })),
 }));
