@@ -1105,6 +1105,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
               points: [existing.points[0], existing.points[1], previewPoint],
             });
           }
+          renderDrawings();
+          bumpOverlay();
           return;
         }
 
@@ -1113,6 +1115,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           points: [existing.points[0], previewPoint],
         });
 
+        renderDrawings();
+        bumpOverlay();
         return;
       }
 
