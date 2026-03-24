@@ -1089,7 +1089,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           type: isRRLong || isRRShort ? 'rr' : tool,
           points: [firstPoint],
           baseTimeframe: timeframe,
-          rrMultiplier: 2, // Default 1:2 ratio
+          rrMultiplier: 2,
           ...(isRRLong && { rrType: 'long' }),
           ...(isRRShort && { rrType: 'short' }),
         });
@@ -1110,19 +1110,49 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       const existing = drawingsRef.current.find((drawing) => drawing.id === id);
       if (!existing || existing.points.length === 0) return;
 
-      const nextPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
+      let nextPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
       if (!nextPoint) return;
 
-      // For RR tool, add a third point (target) and keep waiting
+      // For RR tool, apply constraints on click to finalize the point
       if (tool === 'rrLong' || tool === 'rrShort') {
+        const entryPrice = existing.points[0].price;
+        const rrType = tool === 'rrLong' ? 'long' : 'short';
+
         if (existing.points.length === 1) {
-          // Second click: set stop level
+          // Finalizing stop point
+          if (rrType === 'long') {
+            if (nextPoint.price >= entryPrice) {
+              nextPoint.price = entryPrice - 0.0001;
+            }
+          } else {
+            if (nextPoint.price <= entryPrice) {
+              nextPoint.price = entryPrice + 0.0001;
+            }
+          }
+          
           useChartStore.getState().updateDrawing(id, {
             points: [...existing.points, nextPoint],
           });
           return;
         } else if (existing.points.length === 2) {
-          // Third click: set target level
+          // Finalizing target point
+          const stopPrice = existing.points[1].price;
+          if (rrType === 'long') {
+            if (nextPoint.price <= entryPrice) {
+              nextPoint.price = entryPrice + 0.0001;
+            }
+            if (nextPoint.price <= stopPrice) {
+              nextPoint.price = stopPrice + 0.0001;
+            }
+          } else {
+            if (nextPoint.price >= entryPrice) {
+              nextPoint.price = entryPrice - 0.0001;
+            }
+            if (nextPoint.price >= stopPrice) {
+              nextPoint.price = stopPrice - 0.0001;
+            }
+          }
+          
           useChartStore.getState().updateDrawing(id, {
             points: [...existing.points, nextPoint],
           });
@@ -1160,48 +1190,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         let previewPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
         if (!previewPoint) return;
 
-        // Apply directional constraints during preview for RR tool
-        if ((tool === 'rrLong' || tool === 'rrShort') && existing.points.length >= 1) {
-          const entryPrice = existing.points[0].price;
-          const rrType = tool === 'rrLong' ? 'long' : 'short';
-
-          if (existing.points.length === 1) {
-            // Drawing stop point
-            if (rrType === 'long') {
-              // Stop must be below entry - clamp if needed
-              if (previewPoint.price >= entryPrice) {
-                previewPoint.price = entryPrice - 0.0001;
-              }
-            } else {
-              // Stop must be above entry - clamp if needed
-              if (previewPoint.price <= entryPrice) {
-                previewPoint.price = entryPrice + 0.0001;
-              }
-            }
-          } else if (existing.points.length === 2) {
-            // Drawing target point
-            const stopPrice = existing.points[1].price;
-            if (rrType === 'long') {
-              // Target must be above entry AND above stop
-              if (previewPoint.price <= entryPrice) {
-                previewPoint.price = entryPrice + 0.0001;
-              }
-              if (previewPoint.price <= stopPrice) {
-                previewPoint.price = stopPrice + 0.0001;
-              }
-            } else {
-              // Target must be below entry AND below stop
-              if (previewPoint.price >= entryPrice) {
-                previewPoint.price = entryPrice - 0.0001;
-              }
-              if (previewPoint.price >= stopPrice) {
-                previewPoint.price = stopPrice - 0.0001;
-              }
-            }
-          }
-        }
-
-        // For RR, update only the preview point without replacing others
+        // For RR, update preview without clamping - let user see their intended position
         if (tool === 'rrLong' || tool === 'rrShort') {
           useChartStore.getState().updateDrawing(id, {
             points: existing.points.map((point, idx) => 
