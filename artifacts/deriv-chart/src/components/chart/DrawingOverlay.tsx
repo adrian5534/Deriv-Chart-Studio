@@ -1068,32 +1068,40 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           if (existing.points.length === 1) {
             // Drawing stop point
             if (rrType === 'long') {
-              // Stop must be below entry
-              previewPoint = {
-                ...previewPoint,
-                price: Math.min(previewPoint.price, entryPrice - 0.0001),
-              };
+              // Stop must be below entry - only allow prices below entry
+              if (previewPoint.price >= entryPrice) {
+                previewPoint = {
+                  ...previewPoint,
+                  price: entryPrice - 0.0001,
+                };
+              }
             } else {
               // Stop must be above entry
-              previewPoint = {
-                ...previewPoint,
-                price: Math.max(previewPoint.price, entryPrice + 0.0001),
-              };
+              if (previewPoint.price <= entryPrice) {
+                previewPoint = {
+                  ...previewPoint,
+                  price: entryPrice + 0.0001,
+                };
+              }
             }
           } else if (existing.points.length === 2) {
             // Drawing target point
             if (rrType === 'long') {
               // Target must be above entry
-              previewPoint = {
-                ...previewPoint,
-                price: Math.max(previewPoint.price, entryPrice + 0.0001),
-              };
+              if (previewPoint.price <= entryPrice) {
+                previewPoint = {
+                  ...previewPoint,
+                  price: entryPrice + 0.0001,
+                };
+              }
             } else {
               // Target must be below entry
-              previewPoint = {
-                ...previewPoint,
-                price: Math.min(previewPoint.price, entryPrice - 0.0001),
-              };
+              if (previewPoint.price >= entryPrice) {
+                previewPoint = {
+                  ...previewPoint,
+                  price: entryPrice - 0.0001,
+                };
+              }
             }
           }
         }
@@ -1172,34 +1180,42 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const pointIndex = draggingHandle.pointIndex;
 
           if (rrType === 'long') {
-            // For long: stop (point 1) must be below entry, target (point 2) must be above entry
+            // For long: stop (point 1) must be BELOW entry, target (point 2) must be ABOVE entry
             if (pointIndex === 1) {
-              // Stop point - must be below entry
-              nextPoint = {
-                ...nextPoint,
-                price: Math.min(nextPoint.price, entryPrice - 0.0001),
-              };
+              // Stop point - constrain to below entry
+              if (nextPoint.price >= entryPrice) {
+                nextPoint = {
+                  ...nextPoint,
+                  price: entryPrice - 0.0001,
+                };
+              }
             } else if (pointIndex === 2) {
-              // Target point - must be above entry
-              nextPoint = {
-                ...nextPoint,
-                price: Math.max(nextPoint.price, entryPrice + 0.0001),
-              };
+              // Target point - constrain to above entry
+              if (nextPoint.price <= entryPrice) {
+                nextPoint = {
+                  ...nextPoint,
+                  price: entryPrice + 0.0001,
+                };
+              }
             }
           } else if (rrType === 'short') {
-            // For short: stop (point 1) must be above entry, target (point 2) must be below entry
+            // For short: stop (point 1) must be ABOVE entry, target (point 2) must be BELOW entry
             if (pointIndex === 1) {
-              // Stop point - must be above entry
-              nextPoint = {
-                ...nextPoint,
-                price: Math.max(nextPoint.price, entryPrice + 0.0001),
-              };
+              // Stop point - constrain to above entry
+              if (nextPoint.price <= entryPrice) {
+                nextPoint = {
+                  ...nextPoint,
+                  price: entryPrice + 0.0001,
+                };
+              }
             } else if (pointIndex === 2) {
-              // Target point - must be below entry
-              nextPoint = {
-                ...nextPoint,
-                price: Math.min(nextPoint.price, entryPrice - 0.0001),
-              };
+              // Target point - constrain to below entry
+              if (nextPoint.price >= entryPrice) {
+                nextPoint = {
+                  ...nextPoint,
+                  price: entryPrice - 0.0001,
+                };
+              }
             }
           }
         }
