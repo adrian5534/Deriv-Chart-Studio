@@ -1266,50 +1266,55 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const rrType = (drawing as any).rrType ?? 'long';
           const entryPrice = drawing.points[0].price;
           const stopPrice = drawing.points[1].price;
+          const targetPrice = drawing.points[2]?.price;
           const pointIndex = draggingHandle.pointIndex;
 
           if (rrType === 'long') {
             // For long: stop (point 1) must be BELOW entry, target (point 2) must be ABOVE entry
             if (pointIndex === 1) {
-              // Stop point - must stay below entry, don't cross it
+              // Stop point - clamp to below entry
               if (nextPoint.price >= entryPrice) {
-                return; // Reject the move entirely
+                nextPoint.price = entryPrice - 0.0001;
               }
             } else if (pointIndex === 2) {
-              // Target point - must stay above entry, don't cross it or stop
-              if (nextPoint.price <= entryPrice || nextPoint.price <= stopPrice) {
-                return; // Reject the move entirely
-              }
-            } else if (pointIndex === 0) {
-              // Entry point - can move but stop must stay below and target above
-              const targetPrice = drawing.points[2]?.price;
-              if (targetPrice !== undefined && nextPoint.price >= targetPrice) {
-                return; // Entry can't cross target
+              // Target point - clamp to above entry AND above stop
+              if (nextPoint.price <= entryPrice) {
+                nextPoint.price = entryPrice + 0.0001;
               }
               if (nextPoint.price <= stopPrice) {
-                return; // Entry can't cross below stop
+                nextPoint.price = stopPrice + 0.0001;
+              }
+            } else if (pointIndex === 0) {
+              // Entry point - can move but validate constraints
+              if (targetPrice !== undefined && nextPoint.price >= targetPrice) {
+                nextPoint.price = targetPrice - 0.0001;
+              }
+              if (nextPoint.price <= stopPrice) {
+                nextPoint.price = stopPrice + 0.0001;
               }
             }
           } else if (rrType === 'short') {
             // For short: stop (point 1) must be ABOVE entry, target (point 2) must be BELOW entry
             if (pointIndex === 1) {
-              // Stop point - must stay above entry, don't cross it
+              // Stop point - clamp to above entry
               if (nextPoint.price <= entryPrice) {
-                return; // Reject the move entirely
+                nextPoint.price = entryPrice + 0.0001;
               }
             } else if (pointIndex === 2) {
-              // Target point - must stay below entry, don't cross it or stop
-              if (nextPoint.price >= entryPrice || nextPoint.price >= stopPrice) {
-                return; // Reject the move entirely
-              }
-            } else if (pointIndex === 0) {
-              // Entry point - can move but stop must stay above and target below
-              const targetPrice = drawing.points[2]?.price;
-              if (targetPrice !== undefined && nextPoint.price <= targetPrice) {
-                return; // Entry can't cross target
+              // Target point - clamp to below entry AND below stop
+              if (nextPoint.price >= entryPrice) {
+                nextPoint.price = entryPrice - 0.0001;
               }
               if (nextPoint.price >= stopPrice) {
-                return; // Entry can't cross above stop
+                nextPoint.price = stopPrice - 0.0001;
+              }
+            } else if (pointIndex === 0) {
+              // Entry point - can move but validate constraints
+              if (targetPrice !== undefined && nextPoint.price <= targetPrice) {
+                nextPoint.price = targetPrice + 0.0001;
+              }
+              if (nextPoint.price >= stopPrice) {
+                nextPoint.price = stopPrice - 0.0001;
               }
             }
           }
@@ -1361,14 +1366,14 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       setDraggingDrawing(null);
     };
 
-    window.addEventListener('pointermove', handlePointerMove, { capture: true });
-    window.addEventListener('pointerup', stopDragging, { capture: true });
-    window.addEventListener('pointercancel', stopDragging, { capture: true });
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopDragging);
+    window.addEventListener('pointercancel', stopDragging);
 
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove, { capture: true });
-      window.removeEventListener('pointerup', stopDragging, { capture: true });
-      window.removeEventListener('pointercancel', stopDragging, { capture: true });
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopDragging);
+      window.removeEventListener('pointercancel', stopDragging);
     };
   }, [
     draggingDrawing,
