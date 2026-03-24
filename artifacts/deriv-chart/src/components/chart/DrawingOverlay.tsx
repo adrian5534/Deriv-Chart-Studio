@@ -1167,39 +1167,28 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           if (existing.points.length === 1) {
             // Drawing stop point
             if (rrType === 'long') {
-              // Stop must be below entry - only allow prices below entry
+              // Stop must be below entry
               if (previewPoint.price >= entryPrice) {
-                previewPoint = {
-                  ...previewPoint,
-                  price: entryPrice - 0.0001,
-                };
+                return;
               }
             } else {
               // Stop must be above entry
               if (previewPoint.price <= entryPrice) {
-                previewPoint = {
-                  ...previewPoint,
-                  price: entryPrice + 0.0001,
-                };
+                return;
               }
             }
           } else if (existing.points.length === 2) {
             // Drawing target point
+            const stopPrice = existing.points[1].price;
             if (rrType === 'long') {
-              // Target must be above entry
-              if (previewPoint.price <= entryPrice) {
-                previewPoint = {
-                  ...previewPoint,
-                  price: entryPrice + 0.0001,
-                };
+              // Target must be above entry AND above stop
+              if (previewPoint.price <= entryPrice || previewPoint.price <= stopPrice) {
+                return;
               }
             } else {
-              // Target must be below entry
-              if (previewPoint.price >= entryPrice) {
-                previewPoint = {
-                  ...previewPoint,
-                  price: entryPrice - 0.0001,
-                };
+              // Target must be below entry AND below stop
+              if (previewPoint.price >= entryPrice || previewPoint.price >= stopPrice) {
+                return;
               }
             }
           }
@@ -1276,44 +1265,51 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         if (drawing.type === 'rr' && drawing.points.length >= 2) {
           const rrType = (drawing as any).rrType ?? 'long';
           const entryPrice = drawing.points[0].price;
+          const stopPrice = drawing.points[1].price;
           const pointIndex = draggingHandle.pointIndex;
 
           if (rrType === 'long') {
             // For long: stop (point 1) must be BELOW entry, target (point 2) must be ABOVE entry
             if (pointIndex === 1) {
-              // Stop point - constrain to below entry
+              // Stop point - must stay below entry, don't cross it
               if (nextPoint.price >= entryPrice) {
-                nextPoint = {
-                  ...nextPoint,
-                  price: entryPrice - 0.0001,
-                };
+                return; // Reject the move entirely
               }
             } else if (pointIndex === 2) {
-              // Target point - constrain to above entry
-              if (nextPoint.price <= entryPrice) {
-                nextPoint = {
-                  ...nextPoint,
-                  price: entryPrice + 0.0001,
-                };
+              // Target point - must stay above entry, don't cross it or stop
+              if (nextPoint.price <= entryPrice || nextPoint.price <= stopPrice) {
+                return; // Reject the move entirely
+              }
+            } else if (pointIndex === 0) {
+              // Entry point - can move but stop must stay below and target above
+              const targetPrice = drawing.points[2]?.price;
+              if (targetPrice !== undefined && nextPoint.price >= targetPrice) {
+                return; // Entry can't cross target
+              }
+              if (nextPoint.price <= stopPrice) {
+                return; // Entry can't cross below stop
               }
             }
           } else if (rrType === 'short') {
             // For short: stop (point 1) must be ABOVE entry, target (point 2) must be BELOW entry
             if (pointIndex === 1) {
-              // Stop point - constrain to above entry
+              // Stop point - must stay above entry, don't cross it
               if (nextPoint.price <= entryPrice) {
-                nextPoint = {
-                  ...nextPoint,
-                  price: entryPrice + 0.0001,
-                };
+                return; // Reject the move entirely
               }
             } else if (pointIndex === 2) {
-              // Target point - constrain to below entry
-              if (nextPoint.price >= entryPrice) {
-                nextPoint = {
-                  ...nextPoint,
-                  price: entryPrice - 0.0001,
-                };
+              // Target point - must stay below entry, don't cross it or stop
+              if (nextPoint.price >= entryPrice || nextPoint.price >= stopPrice) {
+                return; // Reject the move entirely
+              }
+            } else if (pointIndex === 0) {
+              // Entry point - can move but stop must stay above and target below
+              const targetPrice = drawing.points[2]?.price;
+              if (targetPrice !== undefined && nextPoint.price <= targetPrice) {
+                return; // Entry can't cross target
+              }
+              if (nextPoint.price >= stopPrice) {
+                return; // Entry can't cross above stop
               }
             }
           }
