@@ -647,6 +647,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const entryPoint = drawing.points[0];
         const stopPoint = drawing.points[1];
         const targetPoint = drawing.points[2];
+        const rrType = (drawing as any).rrType ?? 'long';
 
         const pEntry = projectPoint(entryPoint);
         const pStop = projectPoint(stopPoint);
@@ -674,95 +675,188 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const xLeft = Math.min(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
           const xRight = Math.max(pEntry.x, pStop.x, pTarget?.x ?? pEntry.x);
 
-          // Determine red/green areas
-          const redTop = Math.min(yEntry, yStop);
-          const redBottom = Math.max(yEntry, yStop);
+          // Determine red/green areas based on RR type and prices
+          if (rrType === 'long') {
+            // For long: stop is BELOW entry (lower price), target is ABOVE entry (higher price)
+            const redTop = Math.min(yEntry, yStop);
+            const redBottom = Math.max(yEntry, yStop);
 
-          if (targetY != null) {
-            const greenTop = Math.min(yEntry, targetY);
-            const greenBottom = Math.max(yEntry, targetY);
+            if (targetY != null) {
+              const greenTop = Math.min(yEntry, targetY);
+              const greenBottom = Math.max(yEntry, targetY);
 
-            // Draw green fill
+              // Draw green fill
+              ctx.save();
+              ctx.fillStyle = hexToRgba('#34D399', 0.12);
+              ctx.fillRect(xLeft, greenTop, Math.max(1, xRight - xLeft), Math.max(1, greenBottom - greenTop));
+              ctx.restore();
+            }
+
+            // Draw red fill
             ctx.save();
-            ctx.fillStyle = hexToRgba('#34D399', 0.12);
-            ctx.fillRect(xLeft, greenTop, Math.max(1, xRight - xLeft), Math.max(1, greenBottom - greenTop));
+            ctx.fillStyle = hexToRgba('#EF5350', 0.12);
+            ctx.fillRect(xLeft, redTop, Math.max(1, xRight - xLeft), Math.max(1, redBottom - redTop));
             ctx.restore();
-          }
 
-          // Draw red fill
-          ctx.save();
-          ctx.fillStyle = hexToRgba('#EF5350', 0.12);
-          ctx.fillRect(xLeft, redTop, Math.max(1, xRight - xLeft), Math.max(1, redBottom - redTop));
-          ctx.restore();
+            // Draw lines
+            ctx.save();
+            ctx.lineWidth = baseLineWidth;
 
-          // Draw lines
-          ctx.save();
-          ctx.lineWidth = baseLineWidth;
-
-          // Entry line (bounded)
-          ctx.strokeStyle = drawing.color ?? '#ffffff';
-          ctx.beginPath();
-          ctx.moveTo(xLeft, yEntry);
-          ctx.lineTo(xRight, yEntry);
-          ctx.stroke();
-
-          // Stop line (bounded)
-          ctx.strokeStyle = '#ef5350';
-          ctx.beginPath();
-          ctx.moveTo(xLeft, yStop);
-          ctx.lineTo(xRight, yStop);
-          ctx.stroke();
-
-          // Target line (bounded)
-          if (targetY != null) {
-            ctx.strokeStyle = '#26a69a';
+            // Entry line (bounded)
+            ctx.strokeStyle = drawing.color ?? '#ffffff';
             ctx.beginPath();
-            ctx.moveTo(xLeft, targetY);
-            ctx.lineTo(xRight, targetY);
+            ctx.moveTo(xLeft, yEntry);
+            ctx.lineTo(xRight, yEntry);
             ctx.stroke();
-          }
 
-          // Labels
-          const rewardAbs = Math.abs(targetPrice - entryPrice);
-          const rrVal = risk > 0 ? rewardAbs / risk : NaN;
-          const rrLabel = isFinite(rrVal) ? `RR ${rrVal.toFixed(2)}` : 'RR —';
+            // Stop line (bounded) - RED (below entry)
+            ctx.strokeStyle = '#ef5350';
+            ctx.beginPath();
+            ctx.moveTo(xLeft, yStop);
+            ctx.lineTo(xRight, yStop);
+            ctx.stroke();
 
-          drawTextLabel(
-            ctx,
-            `${entryPrice.toFixed(4)} ${rrLabel}`,
-            xLeft,
-            xRight,
-            yEntry,
-            drawing.color ?? '#ffffff',
-            labelHorizontalAlign,
-            labelVerticalAlign,
-          );
+            // Target line (bounded) - GREEN (above entry)
+            if (targetY != null) {
+              ctx.strokeStyle = '#26a69a';
+              ctx.beginPath();
+              ctx.moveTo(xLeft, targetY);
+              ctx.lineTo(xRight, targetY);
+              ctx.stroke();
+            }
 
-          drawTextLabel(
-            ctx,
-            `Stop ${stopPrice.toFixed(4)}`,
-            xLeft,
-            xRight,
-            yStop,
-            '#ef5350',
-            'right',
-            'top',
-          );
+            // Labels
+            const rewardAbs = Math.abs(targetPrice - entryPrice);
+            const rrVal = risk > 0 ? rewardAbs / risk : NaN;
+            const rrLabel = isFinite(rrVal) ? `RR ${rrVal.toFixed(2)}` : 'RR —';
 
-          if (targetY != null) {
             drawTextLabel(
               ctx,
-              `Target ${targetPrice.toFixed(4)}`,
+              `${entryPrice.toFixed(4)} ${rrLabel}`,
               xLeft,
               xRight,
-              targetY,
-              '#26a69a',
-              'right',
-              'bottom',
+              yEntry,
+              drawing.color ?? '#ffffff',
+              labelHorizontalAlign,
+              labelVerticalAlign,
             );
-          }
 
-          ctx.restore();
+            drawTextLabel(
+              ctx,
+              `Stop ${stopPrice.toFixed(4)}`,
+              xLeft,
+              xRight,
+              yStop,
+              '#ef5350',
+              'right',
+              'top',
+            );
+
+            if (targetY != null) {
+              drawTextLabel(
+                ctx,
+                `Target ${targetPrice.toFixed(4)}`,
+                xLeft,
+                xRight,
+                targetY,
+                '#26a69a',
+                'right',
+                'bottom',
+              );
+            }
+
+            ctx.restore();
+          } else {
+            // For short: stop is ABOVE entry (higher price), target is BELOW entry (lower price)
+            const redTop = Math.min(yEntry, yStop);
+            const redBottom = Math.max(yEntry, yStop);
+
+            if (targetY != null) {
+              const greenTop = Math.min(yEntry, targetY);
+              const greenBottom = Math.max(yEntry, targetY);
+
+              // Draw green fill
+              ctx.save();
+              ctx.fillStyle = hexToRgba('#34D399', 0.12);
+              ctx.fillRect(xLeft, greenTop, Math.max(1, xRight - xLeft), Math.max(1, greenBottom - greenTop));
+              ctx.restore();
+            }
+
+            // Draw red fill
+            ctx.save();
+            ctx.fillStyle = hexToRgba('#EF5350', 0.12);
+            ctx.fillRect(xLeft, redTop, Math.max(1, xRight - xLeft), Math.max(1, redBottom - redTop));
+            ctx.restore();
+
+            // Draw lines
+            ctx.save();
+            ctx.lineWidth = baseLineWidth;
+
+            // Entry line (bounded)
+            ctx.strokeStyle = drawing.color ?? '#ffffff';
+            ctx.beginPath();
+            ctx.moveTo(xLeft, yEntry);
+            ctx.lineTo(xRight, yEntry);
+            ctx.stroke();
+
+            // Stop line (bounded) - RED (above entry for short)
+            ctx.strokeStyle = '#ef5350';
+            ctx.beginPath();
+            ctx.moveTo(xLeft, yStop);
+            ctx.lineTo(xRight, yStop);
+            ctx.stroke();
+
+            // Target line (bounded) - GREEN (below entry for short)
+            if (targetY != null) {
+              ctx.strokeStyle = '#26a69a';
+              ctx.beginPath();
+              ctx.moveTo(xLeft, targetY);
+              ctx.lineTo(xRight, targetY);
+              ctx.stroke();
+            }
+
+            // Labels
+            const rewardAbs = Math.abs(targetPrice - entryPrice);
+            const rrVal = risk > 0 ? rewardAbs / risk : NaN;
+            const rrLabel = isFinite(rrVal) ? `RR ${rrVal.toFixed(2)}` : 'RR —';
+
+            drawTextLabel(
+              ctx,
+              `${entryPrice.toFixed(4)} ${rrLabel}`,
+              xLeft,
+              xRight,
+              yEntry,
+              drawing.color ?? '#ffffff',
+              labelHorizontalAlign,
+              labelVerticalAlign,
+            );
+
+            drawTextLabel(
+              ctx,
+              `Stop ${stopPrice.toFixed(4)}`,
+              xLeft,
+              xRight,
+              yStop,
+              '#ef5350',
+              'right',
+              'top',
+            );
+
+            if (targetY != null) {
+              drawTextLabel(
+                ctx,
+                `Target ${targetPrice.toFixed(4)}`,
+                xLeft,
+                xRight,
+                targetY,
+                '#26a69a',
+                'right',
+                'bottom',
+              );
+            }
+
+            ctx.restore();
+          }
         }
       }
 
