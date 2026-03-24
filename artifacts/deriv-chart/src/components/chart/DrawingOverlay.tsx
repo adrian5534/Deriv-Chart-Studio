@@ -1201,9 +1201,18 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           }
         }
 
-        useChartStore.getState().updateDrawing(id, {
-          points: [existing.points[0], previewPoint],
-        });
+        // For RR, update only the preview point without replacing others
+        if (tool === 'rrLong' || tool === 'rrShort') {
+          useChartStore.getState().updateDrawing(id, {
+            points: existing.points.map((point, idx) => 
+              idx === existing.points.length - 1 ? previewPoint : point
+            ),
+          });
+        } else {
+          useChartStore.getState().updateDrawing(id, {
+            points: [existing.points[0], previewPoint],
+          });
+        }
 
         return;
       }
