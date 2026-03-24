@@ -91,7 +91,7 @@ interface ChartState {
   setConnectionStatus: (status: 'connecting' | 'connected' | 'disconnected') => void;
   setActiveTool: (t: DrawingTool) => void;
 
-  addDrawing: (d: Omit<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'> & Partial<Pick<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'>>) => void;
+  addDrawing: (d: Omit<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'>) => void;
   updateDrawing: (id: string, d: Partial<Drawing>) => void;
   removeDrawing: (id: string) => void;
   clearDrawings: () => void;
@@ -204,14 +204,11 @@ export const useChartStore = create<ChartState>((set) => ({
 
   setActiveTool: (activeTool) => set({ activeTool }),
 
-  addDrawing: (drawing) =>
-    set((state) => {
-      const nextDrawing = normalizeDrawing(drawing);
-      return {
-        drawings: [...state.drawings, nextDrawing],
-        selectedDrawingId: nextDrawing.id,
-      };
-    }),
+  addDrawing: (drawing: Omit<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'>) => {
+    set((state) => ({
+      drawings: [...state.drawings, normalizeDrawing(drawing)],
+    }));
+  },
 
   updateDrawing: (id, updates) =>
     set((state) => ({

@@ -1081,11 +1081,16 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const id = uuidv4();
         currentDrawIdRef.current = id;
 
+        const isRRLong = tool === 'rrLong';
+        const isRRShort = tool === 'rrShort';
+
         useChartStore.getState().addDrawing({
           id,
-          type: tool === 'rrLong' || tool === 'rrShort' ? 'rr' : tool,
+          type: isRRLong || isRRShort ? 'rr' : tool,
           points: [firstPoint],
           baseTimeframe: timeframe,
+          ...(isRRLong && { rrType: 'long' }),
+          ...(isRRShort && { rrType: 'short' }),
         });
 
         syncSelection(null);
