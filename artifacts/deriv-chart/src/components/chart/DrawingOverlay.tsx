@@ -1057,8 +1057,46 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const existing = drawingsRef.current.find((drawing) => drawing.id === id);
         if (!existing || existing.points.length === 0) return;
 
-        const previewPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
+        let previewPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
         if (!previewPoint) return;
+
+        // Apply directional constraints during preview for RR tool
+        if ((tool === 'rrLong' || tool === 'rrShort') && existing.points.length >= 1) {
+          const entryPrice = existing.points[0].price;
+          const rrType = tool === 'rrLong' ? 'long' : 'short';
+
+          if (existing.points.length === 1) {
+            // Drawing stop point
+            if (rrType === 'long') {
+              // Stop must be below entry
+              previewPoint = {
+                ...previewPoint,
+                price: Math.min(previewPoint.price, entryPrice - 0.0001),
+              };
+            } else {
+              // Stop must be above entry
+              previewPoint = {
+                ...previewPoint,
+                price: Math.max(previewPoint.price, entryPrice + 0.0001),
+              };
+            }
+          } else if (existing.points.length === 2) {
+            // Drawing target point
+            if (rrType === 'long') {
+              // Target must be above entry
+              previewPoint = {
+                ...previewPoint,
+                price: Math.max(previewPoint.price, entryPrice + 0.0001),
+              };
+            } else {
+              // Target must be below entry
+              previewPoint = {
+                ...previewPoint,
+                price: Math.min(previewPoint.price, entryPrice - 0.0001),
+              };
+            }
+          }
+        }
 
         useChartStore.getState().updateDrawing(id, {
           points: [existing.points[0], previewPoint],
@@ -1119,13 +1157,52 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const drawing = drawingsRef.current.find((item) => item.id === draggingHandle.drawingId);
         if (!drawing || drawing.locked) return;
 
-        const nextPoint = toChartPoint(
+        let nextPoint = toChartPoint(
           canvasPoint.x,
           canvasPoint.y,
           drawing.points[draggingHandle.pointIndex],
         );
 
         if (!nextPoint) return;
+
+        // Apply directional constraints for RR drawings
+        if (drawing.type === 'rr' && drawing.points.length >= 2) {
+          const rrType = (drawing as any).rrType ?? 'long';
+          const entryPrice = drawing.points[0].price;
+          const pointIndex = draggingHandle.pointIndex;
+
+          if (rrType === 'long') {
+            // For long: stop (point 1) must be below entry, target (point 2) must be above entry
+            if (pointIndex === 1) {
+              // Stop point - must be below entry
+              nextPoint = {
+                ...nextPoint,
+                price: Math.min(nextPoint.price, entryPrice - 0.0001),
+              };
+            } else if (pointIndex === 2) {
+              // Target point - must be above entry
+              nextPoint = {
+                ...nextPoint,
+                price: Math.max(nextPoint.price, entryPrice + 0.0001),
+              };
+            }
+          } else if (rrType === 'short') {
+            // For short: stop (point 1) must be above entry, target (point 2) must be below entry
+            if (pointIndex === 1) {
+              // Stop point - must be above entry
+              nextPoint = {
+                ...nextPoint,
+                price: Math.max(nextPoint.price, entryPrice + 0.0001),
+              };
+            } else if (pointIndex === 2) {
+              // Target point - must be below entry
+              nextPoint = {
+                ...nextPoint,
+                price: Math.min(nextPoint.price, entryPrice - 0.0001),
+              };
+            }
+          }
+        }
 
         // Preserve logical coordinate
         const logical = chart.timeScale().coordinateToLogical(canvasPoint.x);
