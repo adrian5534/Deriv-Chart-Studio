@@ -73,4 +73,4 @@ export default function RiskRewardTool({ chart, series }: Props) {
     <div>
       </div>
   );
-}
+} 

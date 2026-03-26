@@ -600,4 +600,4 @@ export default function DrawingSettingsPanel() {
       </div>
     </div>
   );
-}
+} 
