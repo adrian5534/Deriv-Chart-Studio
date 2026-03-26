@@ -39,7 +39,7 @@ export type Drawing = {
   labelVerticalAlign?: DrawingLabelVerticalAlign;
   visibleTimeframes?: number[] | undefined;
   locked?: boolean;
-  baseTimeframe?: number; // Store the timeframe when drawing was created
+  baseTimeframe?: number;
 };
 
 export interface Alert {
@@ -57,22 +57,18 @@ interface ChartState {
   livePrice: number | null;
   connectionStatus: 'connecting' | 'connected' | 'disconnected';
 
-  // Drawing tools
   activeTool: DrawingTool;
   drawings: Drawing[];
   selectedDrawingId: string | null;
 
-  // Indicators
   indicators: {
     ma: boolean;
     rsi: boolean;
     atr: boolean;
   };
 
-  // Alerts
   alerts: Alert[];
 
-  // Replay
   replay: {
     active: boolean;
     date: string | null;
@@ -84,7 +80,6 @@ interface ChartState {
     startProgress?: number;
   };
 
-  // Actions
   setSymbol: (s: string) => void;
   setTimeframe: (tf: number) => void;
   setLivePrice: (p: number) => void;
@@ -128,12 +123,10 @@ function clampFillOpacity(value: number | undefined) {
   return Math.max(0, Math.min(1, value));
 }
 
-// When normalizing RR drawings, preserve logical coordinates
 function normalizeDrawing(
   drawing: Omit<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'> &
     Partial<Pick<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'>>,
 ): Drawing {
-  // For RR drawings, ensure all points have logical coordinates
   const normalizedPoints = drawing.points.map((point) => ({
     ...point,
     logical: typeof point.logical === 'number' ? point.logical : undefined,
@@ -157,12 +150,10 @@ function normalizeDrawing(
 function normalizeDrawingUpdates(updates: Partial<Drawing>): Partial<Drawing> {
   const normalized: Partial<Drawing> = { ...updates };
 
-  // Ensure points are preserved and normalized when passed in updates
   if ('points' in updates && Array.isArray(updates.points)) {
     normalized.points = updates.points.map((p) => ({
       time: p.time,
       price: p.price,
-      // keep numeric logical if provided, otherwise leave undefined
       logical: typeof p.logical === 'number' ? p.logical : undefined,
     }));
   }
@@ -183,18 +174,9 @@ function normalizeDrawingUpdates(updates: Partial<Drawing>): Partial<Drawing> {
     normalized.lineStyle = DEFAULT_DRAWING_STYLE.lineStyle;
   }
 
-  // Preserve RR-specific fields
-  if ('rrType' in updates) {
-    normalized.rrType = updates.rrType;
-  }
-
-  if ('rrMultiplier' in updates) {
-    normalized.rrMultiplier = updates.rrMultiplier;
-  }
-
-  if ('baseTimeframe' in updates) {
-    normalized.baseTimeframe = updates.baseTimeframe;
-  }
+  if ('rrType' in updates) normalized.rrType = updates.rrType;
+  if ('rrMultiplier' in updates) normalized.rrMultiplier = updates.rrMultiplier;
+  if ('baseTimeframe' in updates) normalized.baseTimeframe = updates.baseTimeframe;
 
   return normalized;
 }
@@ -209,12 +191,7 @@ export const useChartStore = create<ChartState>((set) => ({
   drawings: [],
   selectedDrawingId: null,
 
-  indicators: {
-    ma: false,
-    rsi: false,
-    atr: false,
-  },
-
+  indicators: { ma: false, rsi: false, atr: false },
   alerts: [],
 
   replay: {
@@ -232,10 +209,9 @@ export const useChartStore = create<ChartState>((set) => ({
   setTimeframe: (timeframe) => set({ timeframe }),
   setLivePrice: (livePrice) => set({ livePrice }),
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
-
   setActiveTool: (activeTool) => set({ activeTool }),
 
-  addDrawing: (drawing: Omit<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'>) => {
+  addDrawing: (drawing) => {
     set((state) => ({
       drawings: [...state.drawings, normalizeDrawing(drawing)],
     }));
@@ -245,7 +221,6 @@ export const useChartStore = create<ChartState>((set) => ({
     set((state) => {
       const drawing = state.drawings.find((d) => d.id === id);
       if (!drawing) return state;
-
       return {
         drawings: state.drawings.map((d) =>
           d.id === id ? { ...d, ...normalizeDrawingUpdates(updates) } : d,
@@ -255,31 +230,21 @@ export const useChartStore = create<ChartState>((set) => ({
 
   removeDrawing: (id) =>
     set((state) => ({
-      drawings: state.drawings.filter((drawing) => drawing.id !== id),
+      drawings: state.drawings.filter((d) => d.id !== id),
       selectedDrawingId: state.selectedDrawingId === id ? null : state.selectedDrawingId,
     })),
 
-  clearDrawings: () =>
-    set({
-      drawings: [],
-      selectedDrawingId: null,
-    }),
+  clearDrawings: () => set({ drawings: [], selectedDrawingId: null }),
 
   setSelectedDrawingId: (selectedDrawingId) => set({ selectedDrawingId }),
 
   updateSelectedDrawing: (updates) =>
     set((state) => {
-      if (!state.selectedDrawingId) {
-        return state;
-      }
-
+      if (!state.selectedDrawingId) return state;
       const normalizedUpdates = normalizeDrawingUpdates(updates);
-
       return {
-        drawings: state.drawings.map((drawing) =>
-          drawing.id === state.selectedDrawingId
-            ? { ...drawing, ...normalizedUpdates }
-            : drawing,
+        drawings: state.drawings.map((d) =>
+          d.id === state.selectedDrawingId ? { ...d, ...normalizedUpdates } : d,
         ),
       };
     }),
@@ -293,35 +258,22 @@ export const useChartStore = create<ChartState>((set) => ({
     set((state) => ({
       alerts: [
         ...state.alerts,
-        {
-          ...alert,
-          id: `alert-${Date.now()}`,
-          createdAt: new Date().toISOString(),
-        },
+        { ...alert, id: `alert-${Date.now()}`, createdAt: new Date().toISOString() },
       ],
     })),
 
   removeAlert: (id) =>
-    set((state) => ({
-      alerts: state.alerts.filter((alert) => alert.id !== id),
-    })),
+    set((state) => ({ alerts: state.alerts.filter((a) => a.id !== id) })),
 
   updateAlert: (id, updates) =>
     set((state) => ({
-      alerts: state.alerts.map((alert) =>
-        alert.id === id ? { ...alert, ...updates } : alert,
-      ),
+      alerts: state.alerts.map((a) => (a.id === id ? { ...a, ...updates } : a)),
     })),
 
-  clearAlerts: () =>
-    set({
-      alerts: [],
-    }),
+  clearAlerts: () => set({ alerts: [] }),
 
   setReplayState: (updates) =>
-    set((state) => ({
-      replay: { ...state.replay, ...updates },
-    })),
+    set((state) => ({ replay: { ...state.replay, ...updates } })),
 
   stopReplay: () =>
     set((state) => ({
