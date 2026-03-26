@@ -181,7 +181,17 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
   }, [timeframe]);
 
   const getPointLogical = useCallback((point: Point) => {
+    // Prefer deriving logical from the point's time if possible (stable across timeframes)
+    const tx = chart.timeScale().timeToCoordinate(point.time as never);
+    if (tx != null) {
+      const logical = chart.timeScale().coordinateToLogical(tx);
+      if (logical != null) return Number(logical);
+    }
+
+    // Fallback to stored logical if present
     if (typeof point.logical === 'number') return point.logical;
+
+    // As a last resort, try converting time -> coordinate -> logical
     const x = chart.timeScale().timeToCoordinate(point.time as never);
     if (x == null) return null;
     const logical = chart.timeScale().coordinateToLogical(x);
@@ -217,12 +227,27 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
   }, [chart, getPointLogical, series, timeframe]);
 
   const projectPoint = useCallback((point: Point) => {
+    // Prefer time -> coordinate (stable across timeframe changes)
     const y = series.priceToCoordinate(point.price);
+    if (y == null) return null;
+
+    // Try to use absolute time first
     let x: number | null = null;
-    if (typeof point.logical === 'number') {
-      x = chart.timeScale().logicalToCoordinate(point.logical as Logical);
+    try {
+      x = chart.timeScale().timeToCoordinate(point.time as never);
+    } catch {
+      x = null;
     }
-    if (x == null) x = chart.timeScale().timeToCoordinate(point.time as never);
+
+    // If no valid time coordinate, fall back to logical
+    if (x == null && typeof point.logical === 'number') {
+      try {
+        x = chart.timeScale().logicalToCoordinate(point.logical as Logical);
+      } catch {
+        x = null;
+      }
+    }
+
     if (x == null || y == null) return null;
     return { x, y };
   }, [chart, series]);
