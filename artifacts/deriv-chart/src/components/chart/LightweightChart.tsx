@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle, useCallback } from 'react';
-import { createChart, IChartApi, ISeriesApi, ColorType, CandlestickSeries, type LogicalRange } from 'lightweight-charts';
+import { createChart, IChartApi, ISeriesApi, ColorType, type LogicalRange } from 'lightweight-charts';
 import { useChartStore } from '../../store/use-chart-store';
 import { useDerivWebSocket, CandleData } from '../../hooks/use-deriv-websocket';
 import DrawingOverlay from './DrawingOverlay';
@@ -8,14 +8,14 @@ import AlertPopup from './AlertPopup';
 
 export interface ChartRef {
   getChart: () => IChartApi | null;
-  getSeries: () => ISeriesApi<'Candlestick', 'Time'> | null;
+  getSeries: () => ISeriesApi<'Candlestick'> | null;
   loadReplayCandles: (date: string) => Promise<CandleData[]>;
 }
 
 const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<'Candlestick', 'Time'> | null>(null);
+  const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const replayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [isReady, setIsReady] = useState(false);
@@ -104,7 +104,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       autoSize: true,
     });
 
-    const candleSeries = chart.addSeries(CandlestickSeries, {
+    const candleSeries = chart.addSeries('Candlestick', {
       upColor: '#26a69a',
       downColor: '#ef5350',
       borderVisible: false,
