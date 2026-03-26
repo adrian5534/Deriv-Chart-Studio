@@ -91,6 +91,7 @@ export const stopAlertSound = () => {
 export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTriggered }: UseDerivWebSocketProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const subscriptionIdRef = useRef<string | null>(null);
+  const lastRequestedRef = useRef<{ symbol: string; timeframe: number } | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggeredAlertsRef = useRef<Set<string>>(new Set()); // Track triggered alerts to prevent repeats
 
@@ -153,11 +154,21 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
     // Clear triggered alerts when changing asset
     triggeredAlertsRef.current.clear();
 
+    // Avoid sending duplicate subscribe requests for same symbol/timeframe
+    const last = lastRequestedRef.current;
+    if (last && last.symbol === symbol && last.timeframe === timeframe && subscriptionIdRef.current) {
+      // already subscribed to this exact stream — skip
+      return;
+    }
+
     // Unsubscribe previous stream
     if (subscriptionIdRef.current) {
       sendMsg({ forget: subscriptionIdRef.current });
       subscriptionIdRef.current = null;
     }
+
+    // remember what we requested so repeated calls don't resubscribe
+    lastRequestedRef.current = { symbol, timeframe };
 
     // Request 1000 historical candles + subscribe to live stream
     sendMsg({
@@ -190,7 +201,13 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
         const data = JSON.parse(msg.data);
 
         if (data.error) {
-          console.warn('[Deriv WS] Error:', data.error.message);
+          const msgText = String(data.error?.message || data.error);
+          // Ignore duplicate-subscribe errors from server (harmless)
+          if (msgText.toLowerCase().includes('already subscribed')) {
+            console.debug('[Deriv WS] already subscribed -> ignoring duplicate subscribe');
+            return;
+          }
+          console.warn('[Deriv WS] Error:', data.error.message || data.error);
           return;
         }
 
@@ -232,6 +249,7 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
 
     ws.onclose = () => {
       setConnectionStatus('disconnected');
+      lastRequestedRef.current = null;
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = setTimeout(connect, 3000);
     };
@@ -249,6 +267,7 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
         if (subscriptionIdRef.current) {
           sendMsg({ forget: subscriptionIdRef.current });
         }
+        lastRequestedRef.current = null;
         wsRef.current.onclose = null;
         wsRef.current.close();
       }
