@@ -194,6 +194,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     if (logical == null || price == null) return null;
     
     const directTime = chart.timeScale().coordinateToTime(x);
+    
     if (typeof directTime === 'number') {
       return { 
         time: directTime, 
@@ -821,12 +822,37 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         const drawing = drawingsRef.current.find((item) => item.id === draggingHandle.drawingId);
         if (!drawing || drawing.locked) return;
         
-        const referencePoint = drawing.points[0];
-        let nextPoint = toChartPoint(canvasPoint.x, canvasPoint.y, referencePoint);
-        if (!nextPoint) return;
+        // Get the actual logical coordinate from the canvas position
+        const logical = chart.timeScale().coordinateToLogical(canvasPoint.x);
+        if (logical == null) return;
 
-        // Store the logical value before any price adjustments
+        const price = series.coordinateToPrice(canvasPoint.y);
+        if (price == null) return;
+
+        const directTime = chart.timeScale().coordinateToTime(canvasPoint.x);
+        
+        let nextPoint: Point;
+        if (typeof directTime === 'number') {
+          nextPoint = {
+            time: directTime,
+            price,
+            logical: Number(logical),
+          };
+        } else {
+          const referencePoint = drawing.points[0];
+          const referenceLogical = getPointLogical(referencePoint);
+          if (referenceLogical == null) return;
+          
+          nextPoint = {
+            time: referencePoint.time + Math.round((Number(logical) - referenceLogical) * timeframe),
+            price,
+            logical: Number(logical),
+          };
+        }
+
+        // Store the logical value BEFORE any price adjustments
         const preservedLogical = nextPoint.logical;
+        const preservedTime = nextPoint.time;
 
         if (drawing.type === 'rr' && drawing.points.length >= 2) {
           const rrType = (drawing as any).rrType ?? 'long';
@@ -852,8 +878,12 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           }
         }
 
-        // Preserve the logical coordinate
-        nextPoint.logical = preservedLogical;
+        // IMPORTANT: Restore the time and logical coordinates after price adjustment
+        nextPoint = {
+          ...nextPoint,
+          time: preservedTime,
+          logical: preservedLogical,
+        };
         
         const nextPoints = drawing.points.map((point, index) =>
           index === draggingHandle.pointIndex ? nextPoint : point
