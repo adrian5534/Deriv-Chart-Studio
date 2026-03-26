@@ -25,6 +25,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
   // --- Multi-timeframe replay alignment ---
   const [pendingRange, setPendingRange] = useState<{from: number, to: number} | null>(null);
+  const pendingLiveRangeRef = useRef<{ from: number; to: number } | null>(null);
   const prevReplayActive = useRef(false);
   const prevTimeframe = useRef<string | null>(null);
   const prevReplayCandlesRef = useRef<CandleData[] | null>(null);
@@ -58,6 +59,29 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
         const toTime = data[toIdx]?.time;
         if (fromTime && toTime) {
           setPendingRange({ from: fromTime as number, to: toTime as number });
+        }
+      }
+    }
+    prevTimeframe.current = String(timeframe);
+  }, [timeframe, replayActive]);
+
+  // Capture visible timestamps before timeframe changes in live mode so we can reapply after new data
+  useEffect(() => {
+    if (replayActive) return; // replay handles its own mapping
+    if (!chartRef.current || !seriesRef.current) {
+      prevTimeframe.current = String(timeframe);
+      return;
+    }
+    if (prevTimeframe.current && prevTimeframe.current !== String(timeframe)) {
+      const range = chartRef.current.timeScale().getVisibleLogicalRange();
+      if (range && seriesRef.current) {
+        const data = seriesRef.current.data();
+        const fromIdx = Math.max(Math.floor(range.from), 0);
+        const toIdx = Math.min(Math.ceil(range.to), data.length - 1);
+        const fromTime = data[fromIdx]?.time;
+        const toTime = data[toIdx]?.time;
+        if (fromTime && toTime) {
+          pendingLiveRangeRef.current = { from: Number(fromTime), to: Number(toTime) };
         }
       }
     }
@@ -147,6 +171,23 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
       try {
         seriesRef.current.setData(sorted);
+
+        // If we captured a live pending range for this TF switch, map timestamps -> new logical indices and restore visible range
+        if (pendingLiveRangeRef.current && chartRef.current) {
+          const { from, to } = pendingLiveRangeRef.current;
+          // find indices in sorted (ascending)
+          const fromIdx = sorted.findIndex(bar => Number(bar.time) >= from);
+          const toIdx = sorted.findIndex(bar => Number(bar.time) >= to);
+          if (fromIdx !== -1 && toIdx !== -1) {
+            try {
+              chartRef.current.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+            } catch {
+              // ignore setVisibleLogicalRange errors
+            }
+          }
+          pendingLiveRangeRef.current = null;
+        }
+
         requestAnimationFrame(() => bumpOverlayRedraw());
       } catch {
         // ignore
