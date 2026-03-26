@@ -314,18 +314,80 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
   return { loadReplayCandles };
 }
 
-export function normalizeCandlesToSeconds(candles: CandleData[]): CandleData[] {
-  return candles.map((c) => {
-    let t = c.time as any;
-    // string ISO or numeric (ms or seconds)
-    if (typeof t === 'string') {
-      const parsed = Date.parse(t);
-      t = Number.isFinite(parsed) ? Math.floor(parsed / 1000) : Math.floor(Number(t));
-    } else {
-      const n = Number(t);
-      // if looks like ms (> 1e12) convert to seconds
-      t = n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
-    }
-    return { ...c, time: t };
-  });
+/**
+ * Normalize incoming candles to consistent shape and seconds-based epoch.
+ */
+function normalizeCandlesToSeconds(candles: any[]): CandleData[] {
+  return candles
+    .map((c: any) => {
+      // try common time fields
+      let t: any = c.time ?? c.epoch ?? c.timestamp ?? c.date ?? c[0] ?? null;
+      if (typeof t === 'string') {
+        const parsed = Date.parse(t);
+        t = Number.isFinite(parsed) ? Math.floor(parsed / 1000) : Math.floor(Number(t));
+      } else if (typeof t === 'number') {
+        // convert ms -> seconds when necessary
+        t = t > 1e12 ? Math.floor(t / 1000) : Math.floor(t);
+      } else {
+        t = null;
+      }
+
+      return {
+        time: t,
+        open: Number(c.open ?? c.o ?? c.O ?? c[1] ?? 0),
+        high: Number(c.high ?? c.h ?? c.H ?? c[2] ?? 0),
+        low: Number(c.low ?? c.l ?? c.L ?? c[3] ?? 0),
+        close: Number(c.close ?? c.c ?? c.C ?? c[4] ?? 0),
+        volume: Number(c.volume ?? c.v ?? c[5] ?? 0),
+      } as CandleData;
+    })
+    .filter((c) => c.time != null); // drop invalid items
+}
+
+/**
+ * Robust websocket message handler - tolerant to single-object or array payloads
+ */
+function handleWsMessage(
+  ev: MessageEvent,
+  onHistoricalData?: (data: CandleData[]) => void,
+  onLiveUpdate?: (data: CandleData) => void
+) {
+  let parsed: any;
+  try {
+    parsed = typeof ev.data === 'string' ? JSON.parse(ev.data) : ev.data;
+  } catch (err) {
+    console.error('[Deriv WS] JSON parse error', err, ev.data);
+    return;
+  }
+
+  // Detect payload candidates used by different endpoints/providers
+  const candidate = parsed?.candles ?? parsed?.history ?? parsed?.data ?? parsed?.subscription ?? parsed?.msg ?? parsed;
+
+  // Normalize to array
+  let rawArray: any[] = [];
+  if (Array.isArray(candidate)) rawArray = candidate;
+  else if (candidate && typeof candidate === 'object') {
+    // if object contains nested array fields, prefer them
+    if (Array.isArray(candidate.candles)) rawArray = candidate.candles;
+    else if (Array.isArray(candidate.history)) rawArray = candidate.history;
+    else if (Array.isArray(candidate.data)) rawArray = candidate.data;
+    else rawArray = [candidate];
+  } else {
+    // nothing useful
+    return;
+  }
+
+  // Defensive: ensure we actually have array items before mapping
+  if (!rawArray.length) return;
+
+  const normalized = normalizeCandlesToSeconds(rawArray);
+
+  // Decide whether this is historical vs live update:
+  // - If payload contained multiple candles -> treat as historical/full update
+  // - If single candle -> treat as live update
+  if (normalized.length > 1) {
+    try { onHistoricalData?.(normalized); } catch (e) { console.error('[Deriv WS] onHistoricalData handler error', e); }
+  } else {
+    try { onLiveUpdate?.(normalized[0]); } catch (e) { console.error('[Deriv WS] onLiveUpdate handler error', e); }
+  }
 }
