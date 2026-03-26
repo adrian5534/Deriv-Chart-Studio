@@ -1405,4 +1405,4 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       </div>
     </div>
   );
-}
+} 
