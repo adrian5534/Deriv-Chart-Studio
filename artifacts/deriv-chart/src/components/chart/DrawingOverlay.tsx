@@ -1302,10 +1302,71 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     chart,
   ]);
 
+  useEffect(() => {
+    const host = containerRef.current?.parentElement;
+    if (!host) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (activeToolRef.current !== 'cursor') return;
+      if (draggingHandle || draggingDrawing) return;
+
+      const canvasPoint = getCanvasPointFromClient(event.clientX, event.clientY);
+      if (!canvasPoint) return;
+
+      // Check if clicking a handle first
+      const handleHit = findHandleAt(canvasPoint.x, canvasPoint.y);
+      if (handleHit) {
+        // Don't start drawing drag on handle - let button handle it
+        return;
+      }
+
+      const drawingId = findDrawingAt(canvasPoint.x, canvasPoint.y);
+      if (!drawingId) return;
+
+      const drawing = drawingsRef.current.find((item) => item.id === drawingId);
+      if (!drawing || drawing.locked || !isDrawingVisibleOnTimeframe(drawing)) return;
+
+      const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
+      if (!anchor) return;
+
+      syncSelection(drawingId);
+      suppressNextClickRef.current = false;
+      setDraggingDrawing({
+        drawingId,
+        startLogical: anchor.logical,
+        startPrice: anchor.price,
+        originalPoints: drawing.points.map((point) => ({
+          ...point,
+          logical: getPointLogical(point) ?? point.logical,
+        })),
+      });
+
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    host.addEventListener('pointerdown', handlePointerDown, true);
+
+    return () => {
+      host.removeEventListener('pointerdown', handlePointerDown, true);
+    };
+  }, [
+    draggingDrawing,
+    draggingHandle,
+    findDrawingAt,
+    findHandleAt,
+    getCanvasPointFromClient,
+    getPointLogical,
+    isDrawingVisibleOnTimeframe,
+    syncSelection,
+    toLogicalPricePoint,
+  ]);
+
   const startHandleDrag =
     (drawingId: string, pointIndex: number) => (event: React.PointerEvent) => {
       event.preventDefault();
       event.stopPropagation();
+      suppressNextClickRef.current = true; // Prevent chart click after drag
       syncSelection(drawingId);
       setDraggingHandle({ drawingId, pointIndex });
     };
