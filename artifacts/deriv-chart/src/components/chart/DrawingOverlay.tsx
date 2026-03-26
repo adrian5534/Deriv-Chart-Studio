@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 interface DrawingOverlayProps {
   chart: IChartApi;
-  series: ISeriesApi<'Candlestick', 'Time'>;
+  series: ISeriesApi<'Candlestick'>;
   redrawKey: number;
 }
 
@@ -626,8 +626,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
         return { drawingId: drawing.id, pointIndex, x: coords.x, y: coords.y, color: drawing.color || '#2962FF' };
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
-  // overlayTick is intentionally included to trigger re-computation after re-render
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTool, drawings, isDrawingVisibleOnTimeframe, overlayTick, projectPoint, selectedDrawingId]);
 
   useEffect(() => {
