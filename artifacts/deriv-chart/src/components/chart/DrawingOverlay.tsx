@@ -980,79 +980,206 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
   }, [redrawKey, renderDrawings, bumpOverlay]);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const resize = () => {
+    const handleScaleChange = () => {
       renderDrawings();
       bumpOverlay();
     };
 
-    const observer = new ResizeObserver(resize);
-    observer.observe(container);
-    resize();
-
-    return () => observer.disconnect();
-  }, [bumpOverlay, renderDrawings]);
-
-  useEffect(() => {
-    const host = containerRef.current?.parentElement;
-    if (!host) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (activeToolRef.current !== 'cursor') return;
-      if (draggingHandle || draggingDrawing) return;
-
-      const canvasPoint = getCanvasPointFromClient(event.clientX, event.clientY);
-      if (!canvasPoint) return;
-
-      // Check if clicking a handle first
-      const handleHit = findHandleAt(canvasPoint.x, canvasPoint.y);
-      if (handleHit) {
-        // Handle drag will be started by the button's onPointerDown
+    const handleChartClick = (param: MouseEventParams) => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
         return;
       }
 
-      const drawingId = findDrawingAt(canvasPoint.x, canvasPoint.y);
-      if (!drawingId) return;
+      if (!param.point) return;
 
-      const drawing = drawingsRef.current.find((item) => item.id === drawingId);
-      if (!drawing || drawing.locked || !isDrawingVisibleOnTimeframe(drawing)) return;
+      const tool = activeToolRef.current;
 
-      const anchor = toLogicalPricePoint(canvasPoint.x, canvasPoint.y);
-      if (!anchor) return;
+      if (tool === 'cursor') {
+        const handleHit = findHandleAt(param.point.x, param.point.y);
+        if (handleHit) {
+          syncSelection(handleHit.drawingId);
+          renderDrawings();
+          bumpOverlay();
+          return;
+        }
 
-      syncSelection(drawingId);
-      suppressNextClickRef.current = false;
-      setDraggingDrawing({
-        drawingId,
-        startLogical: anchor.logical,
-        startPrice: anchor.price,
-        originalPoints: drawing.points.map((point) => ({
-          ...point,
-          logical: getPointLogical(point) ?? point.logical,
-        })),
+        const drawingHit = findDrawingAt(param.point.x, param.point.y);
+        syncSelection(drawingHit);
+        renderDrawings();
+        bumpOverlay();
+        return;
+      }
+
+      // Drawing creation
+      if (!currentDrawIdRef.current) {
+        const firstPoint = toChartPoint(param.point.x, param.point.y);
+        if (!firstPoint) return;
+
+        const id = uuidv4();
+        currentDrawIdRef.current = id;
+
+        const isRRLong = tool === 'rrLong';
+        const isRRShort = tool === 'rrShort';
+
+        useChartStore.getState().addDrawing({
+          id,
+          type: isRRLong || isRRShort ? 'rr' : tool,
+          points: [firstPoint],
+          baseTimeframe: timeframe,
+          rrMultiplier: 2,
+          ...(isRRLong && { rrType: 'long' }),
+          ...(isRRShort && { rrType: 'short' }),
+        });
+
+        syncSelection(null);
+        renderDrawings();
+        bumpOverlay();
+
+        if (tool === 'hline') {
+          currentDrawIdRef.current = null;
+          useChartStore.getState().setActiveTool('cursor');
+        }
+
+        return;
+      }
+
+      const id = currentDrawIdRef.current;
+      const existing = drawingsRef.current.find((drawing) => drawing.id === id);
+      if (!existing || existing.points.length === 0) return;
+
+      let nextPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
+      if (!nextPoint) return;
+
+      // For RR tool, apply constraints on click to finalize the point
+      if (tool === 'rrLong' || tool === 'rrShort') {
+        const entryPrice = existing.points[0].price;
+        const rrType = tool === 'rrLong' ? 'long' : 'short';
+
+        if (existing.points.length === 1) {
+          // Finalizing stop point
+          if (rrType === 'long') {
+            if (nextPoint.price >= entryPrice) {
+              nextPoint.price = entryPrice - 0.0001;
+            }
+          } else {
+            if (nextPoint.price <= entryPrice) {
+              nextPoint.price = entryPrice + 0.0001;
+            }
+          }
+          
+          useChartStore.getState().updateDrawing(id, {
+            points: [...existing.points, nextPoint],
+          });
+          return;
+        } else if (existing.points.length === 2) {
+          // Finalizing target point
+          const stopPrice = existing.points[1].price;
+          if (rrType === 'long') {
+            if (nextPoint.price <= entryPrice) {
+              nextPoint.price = entryPrice + 0.0001;
+            }
+            if (nextPoint.price <= stopPrice) {
+              nextPoint.price = stopPrice + 0.0001;
+            }
+          } else {
+            if (nextPoint.price >= entryPrice) {
+              nextPoint.price = entryPrice - 0.0001;
+            }
+            if (nextPoint.price >= stopPrice) {
+              nextPoint.price = stopPrice - 0.0001;
+            }
+          }
+          
+          useChartStore.getState().updateDrawing(id, {
+            points: [...existing.points, nextPoint],
+          });
+          currentDrawIdRef.current = null;
+          useChartStore.getState().setActiveTool('cursor');
+          syncSelection(null);
+          renderDrawings();
+          bumpOverlay();
+          return;
+        }
+      }
+
+      // For other tools (trendline, rect, fib, ray)
+      useChartStore.getState().updateDrawing(id, {
+        points: [...existing.points.slice(0, 1), nextPoint],
       });
 
-      event.preventDefault();
-      event.stopPropagation();
+      currentDrawIdRef.current = null;
+      useChartStore.getState().setActiveTool('cursor');
+      syncSelection(null);
+      renderDrawings();
+      bumpOverlay();
     };
 
-    host.addEventListener('pointerdown', handlePointerDown, true);
+    const handleCrosshairMove = (param: MouseEventParams) => {
+      const tool = activeToolRef.current;
+
+      if (tool !== 'cursor') {
+        const id = currentDrawIdRef.current;
+        if (!id || !param.point) return;
+
+        const existing = drawingsRef.current.find((drawing) => drawing.id === id);
+        if (!existing || existing.points.length === 0) return;
+
+        let previewPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
+        if (!previewPoint) return;
+
+        // For RR, update preview without clamping - let user see their intended position
+        if (tool === 'rrLong' || tool === 'rrShort') {
+          useChartStore.getState().updateDrawing(id, {
+            points: existing.points.map((point, idx) => 
+              idx === existing.points.length - 1 ? previewPoint : point
+            ),
+          });
+        } else {
+          useChartStore.getState().updateDrawing(id, {
+            points: [existing.points[0], previewPoint],
+          });
+        }
+
+        return;
+      }
+
+      if (draggingHandle || draggingDrawing) return;
+      if (!param.point) return;
+
+      const drawingHit =
+        findHandleAt(param.point.x, param.point.y)?.drawingId ??
+        findDrawingAt(param.point.x, param.point.y);
+
+      if (hoveredDrawingIdRef.current !== drawingHit) {
+        hoveredDrawingIdRef.current = drawingHit;
+        renderDrawings();
+        bumpOverlay();
+      }
+    };
+
+    chart.subscribeClick(handleChartClick);
+    chart.subscribeCrosshairMove(handleCrosshairMove);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handleScaleChange);
+
+    renderDrawings();
+    bumpOverlay();
 
     return () => {
-      host.removeEventListener('pointerdown', handlePointerDown, true);
+      chart.unsubscribeClick(handleChartClick);
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleScaleChange);
     };
   }, [
+    bumpOverlay,
+    chart,
     draggingDrawing,
     draggingHandle,
     findDrawingAt,
     findHandleAt,
-    getCanvasPointFromClient,
-    getPointLogical,
-    isDrawingVisibleOnTimeframe,
+    renderDrawings,
     syncSelection,
-    toLogicalPricePoint,
+    toChartPoint,
   ]);
 
   useEffect(() => {
