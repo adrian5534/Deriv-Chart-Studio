@@ -688,8 +688,16 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       }
 
       if (!currentDrawIdRef.current) {
-        const firstPoint = toChartPoint(param.point.x, param.point.y);
-        if (!firstPoint) return;
+          const firstPoint = toChartPoint(param.point.x, param.point.y);
+          if (!firstPoint) return;
+
+          // Ensure logical is always set
+          if (!firstPoint.logical) {
+            const logical = chart.timeScale().coordinateToLogical(param.point.x);
+            if (logical !== null) {
+              firstPoint.logical = Number(logical);
+          }
+        }
 
         const id = uuidv4();
         currentDrawIdRef.current = id;

@@ -152,9 +152,10 @@ function normalizeDrawingUpdates(updates: Partial<Drawing>): Partial<Drawing> {
 
   if ('points' in updates && Array.isArray(updates.points)) {
     normalized.points = updates.points.map((p) => ({
+      ...p,
       time: p.time,
       price: p.price,
-      logical: typeof p.logical === 'number' ? p.logical : undefined,
+      logical: typeof p.logical === 'number' ? p.logical : p.logical,
     }));
   }
 
