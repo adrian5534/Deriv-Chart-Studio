@@ -301,19 +301,14 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   useEffect(() => {
     if (!replayRef.current.active || replayRef.current.time == null) return;
 
-    // Obtain the currently-loaded candle array for the new timeframe.
-    // Replace `getSeriesDataForTimeframe` with however you access data for timeframe
-    const dataForFrame = getSeriesDataForTimeframe(timeframe); // <-- implement or use your store
+    const dataForFrame = getSeriesDataForTimeframe(timeframe); // <-- uses store/store helpers
     if (!dataForFrame || dataForFrame.length === 0) {
       // If no data available for this timeframe, keep replay time and request fetch for that timeframe
-      // Do not reset playback index; optionally fetch/aggregate data for that time window
       requestDataForTimeframeAround(timeframe, replayRef.current.time);
       return;
     }
 
-    // Ensure time units match the library (lightweight-charts accepts number timestamps in seconds or business-time format).
-    // Convert units if necessary (example assumes data.time and replayRef.current.time are in ms; convert to seconds if your chart uses seconds)
-    const targetTime = normalizeTimeUnit(replayRef.current.time, dataForFrame[0].time);
+    const targetTime = normalizeTimeUnit(replayRef.current.time, Number(dataForFrame[0].time));
 
     const idx = findClosestBarIndexByTime(dataForFrame, targetTime);
     if (idx >= 0) {
@@ -321,35 +316,32 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       replayRef.current.time = dataForFrame[idx].time;
 
       // Keep the same visible window size in bars (or compute based on current visible range)
-      // Example: center the visible range around the replay bar:
-      const visibleBars = Math.max(20, Math.floor((chartRef.current?.timeScale().getVisibleLogicalRange()?.to ?? 40) - (chartRef.current?.timeScale().getVisibleLogicalRange()?.from ?? 0)));
+      const visibleRange = chartRef.current?.timeScale().getVisibleLogicalRange();
+      const visibleBars = visibleRange ? Math.max(20, Math.floor((visibleRange.to ?? 40) - (visibleRange.from ?? 0))) : 50;
       const half = Math.floor(visibleBars / 2);
       const fromIndex = Math.max(0, idx - half);
       const toIndex = Math.min(dataForFrame.length - 1, idx + half);
 
-      // Map indices to times for setVisibleRange
       const fromTime = dataForFrame[fromIndex].time;
       const toTime = dataForFrame[toIndex].time;
 
-      // Use timeScale().setVisibleRange to keep the same timestamp visible (adapt units to chart)
       if (chartRef.current) {
         chartRef.current.timeScale().setVisibleRange({ from: fromTime as Time, to: toTime as Time });
       }
 
-      // Update any UI cursor/overlay for replay to the new index
-      setReplayIndex?.(idx); // call your local state updater if present
-      // do not reset playback start — continue playing from replayRef.current.index
+      setReplayIndex(idx);
     } else {
-      // fallback: keep timestamp and request needed data
       requestDataForTimeframeAround(timeframe, replayRef.current.time);
     }
   }, [timeframe]);
 
   // Utility: normalizeTimeUnit(target, sample) -> make sure both match units (ms vs s)
   function normalizeTimeUnit(targetTime: number, sampleTime: number) {
-    // common case: sampleTime is in seconds (<= 1e10) vs ms (>1e12)
-    if (sampleTime > 1e12 && targetTime < 1e12) return targetTime * 1000;
+    // sampleTime likely in seconds (<= 1e10) or ms (>1e12)
+    // if sample is seconds but target is ms -> convert target to seconds
     if (sampleTime < 1e12 && targetTime > 1e12) return Math.floor(targetTime / 1000);
+    // if sample is ms but target is seconds -> convert target to ms
+    if (sampleTime > 1e12 && targetTime < 1e12) return targetTime * 1000;
     return targetTime;
   }
 
@@ -393,38 +385,29 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 LightweightChart.displayName = 'LightweightChart';
 
 export default LightweightChart;
-function requestDataForTimeframeAround(timeframe: number, time: number) {
-  // This implementation records the requested absolute start time in the shared replay state
-  // so other parts of the app (for example your websocket/data loader) can pick it up and
-  // fetch the appropriate candles for the requested timeframe around that time.
-  //
-  // It also emits a DOM event that a data-loading subsystem can listen to if you prefer
-  // an event-driven trigger instead of polling the store.
 
+/* --------------------------------------------------------------------------
+   Helper utilities placed at file bottom (do not reset replay state here)
+   -------------------------------------------------------------------------- */
+
+function requestDataForTimeframeAround(timeframe: number, time: number) {
+  // Record the requested absolute start time in shared replay state so the loader
+  // can fetch candles around that time. Do NOT clear existing candles/index/playing
+  // so playback doesn't visually restart while loading.
   const store = useChartStore.getState();
 
-  // Preserve existing replay state but annotate the desired epoch to load around.
-  // setReplayState is used elsewhere in this file with partial updates, so we mirror that usage.
   store.setReplayState({
     ...store.replay,
-    // mark the absolute epoch we want replay to start from (consumer should interpret units)
     startEpoch: time,
-    // reset any previous candles/index so loader knows to fetch fresh data for the timeframe
-    candles: [],
-    index: 0,
-    playing: false,
   });
 
-  // Emit an application-level event so your websocket/data layer (or another part of the app)
-  // can listen and call loadReplayCandles(timeframe, time) to fetch the data.
-  // Example consumer:
-  // window.addEventListener('requestReplayCandles', e => loadReplayCandles(e.detail.timeframe, e.detail.time));
   try {
     window.dispatchEvent(new CustomEvent('requestReplayCandles', { detail: { timeframe, time } }));
   } catch {
     // ignore in non-browser environments
   }
 }
+
 function setReplayIndex(idx: number) {
   const store = useChartStore.getState();
   const replay = store.replay || ({} as any);
@@ -435,44 +418,35 @@ function setReplayIndex(idx: number) {
 
   const clamped = Math.max(0, Math.min(idx, maxIndex));
 
-  // Update replay index in the shared store (preserve other replay fields)
   store.setReplayState({
     ...replay,
     index: clamped,
   });
 
-  // Emit an event so other subsystems (UI overlays, playback timers, etc.) can react if needed
   try {
     window.dispatchEvent(new CustomEvent('replayIndexChanged', { detail: { index: clamped } }));
   } catch {
     // ignore in non-browser environments
   }
 }
+
 function getSeriesDataForTimeframe(timeframe: number): { time: number }[] {
-  // Try a few reasonable places to retrieve already-loaded candle arrays:
   const store = useChartStore.getState();
 
-  // 1) If the shared replay store holds candles for the requested timeframe, prefer that.
   if (Array.isArray(store.replay?.candles) && store.timeframe === timeframe) {
     return store.replay.candles as { time: number }[];
   }
 
-  // 2) If your store keeps candles keyed by timeframe (common pattern), return that.
-  //    This is defensive: many apps keep a map like { candlesByTimeframe: { '1m': [...], '5m': [...] } }.
   const anyStore = store as any;
   if (anyStore.candlesByTimeframe && Array.isArray(anyStore.candlesByTimeframe[timeframe])) {
     return anyStore.candlesByTimeframe[timeframe] as { time: number }[];
   }
 
-  // 3) If an external loader exposed recent data on window for debugging/integration, try that.
-  //    (Optional — harmless if not present.)
   const globalHolder = (window as any).__derivChartData;
   if (globalHolder && Array.isArray(globalHolder[timeframe])) {
     return globalHolder[timeframe] as { time: number }[];
   }
 
-  // 4) Nothing available locally: request data to be loaded around "now" for this timeframe
-  //    so the caller (or data layer) can fetch it. Return an empty array as a fallback.
   try {
     window.dispatchEvent(new CustomEvent('requestReplayCandles', { detail: { timeframe, time: Date.now() } }));
   } catch {
@@ -481,4 +455,3 @@ function getSeriesDataForTimeframe(timeframe: number): { time: number }[] {
 
   return [];
 }
-
