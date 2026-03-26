@@ -157,6 +157,16 @@ function normalizeDrawing(
 function normalizeDrawingUpdates(updates: Partial<Drawing>): Partial<Drawing> {
   const normalized: Partial<Drawing> = { ...updates };
 
+  // Ensure points are preserved and normalized when passed in updates
+  if ('points' in updates && Array.isArray(updates.points)) {
+    normalized.points = updates.points.map((p) => ({
+      time: p.time,
+      price: p.price,
+      // keep numeric logical if provided, otherwise leave undefined
+      logical: typeof p.logical === 'number' ? p.logical : undefined,
+    }));
+  }
+
   if ('lineWidth' in updates) {
     normalized.lineWidth = clampLineWidth(updates.lineWidth);
   }
