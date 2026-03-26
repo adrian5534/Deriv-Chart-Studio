@@ -1,7 +1,10 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { MousePointer2, TrendingUp, Minus, Square, Divide, ArrowUpRight, ArrowDownRight, Trash2 } from 'lucide-react';
-import { useChartStore, DrawingTool } from '../../store/use-chart-store';
+import { useChartStore, DrawingTool } from '../store/use-chart-store';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import TopBar from '../components/layout/TopBar';
+import RightPanel from '../components/layout/RightPanel';
+import LightweightChart, { ChartRef } from '../components/chart/LightweightChart';
 
 const tools: { id: DrawingTool; icon: React.ReactNode; label: string }[] = [
   { id: 'cursor', icon: <MousePointer2 size={18} />, label: 'Cursor' },
@@ -14,10 +17,10 @@ const tools: { id: DrawingTool; icon: React.ReactNode; label: string }[] = [
   { id: 'rrShort', icon: <ArrowDownRight size={18} />, label: 'Risk / Reward (Short)' },
 ];
 
-export default function LeftToolbar() {
-  const activeTool = useChartStore((s: any) => s.activeTool);
-  const setActiveTool = useChartStore((s: any) => s.setActiveTool);
-  const clearDrawings = useChartStore((s: any) => s.clearDrawings);
+function LeftToolbar() {
+  const activeTool = useChartStore((s) => s.activeTool);
+  const setActiveTool = useChartStore((s) => s.setActiveTool);
+  const clearDrawings = useChartStore((s) => s.clearDrawings);
 
   return (
     <div className="w-14 bg-card border-r border-border flex flex-col items-center py-4 gap-2 z-20">
@@ -56,6 +59,23 @@ export default function LeftToolbar() {
           <p>Remove All Drawings</p>
         </TooltipContent>
       </Tooltip>
+    </div>
+  );
+}
+
+export default function TradingTerminal() {
+  const chartRef = useRef<ChartRef>(null);
+
+  return (
+    <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden font-sans">
+      <TopBar chartRef={chartRef} />
+      <div className="flex flex-1 overflow-hidden min-h-0">
+        <LeftToolbar />
+        <main className="flex-1 relative min-w-0 min-h-0">
+          <LightweightChart ref={chartRef} />
+        </main>
+        <RightPanel />
+      </div>
     </div>
   );
 }
