@@ -166,10 +166,11 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const bounds = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const x = (clientX - bounds.left) * dpr;
-    const y = (clientY - bounds.top) * dpr;
-    if (x < 0 || y < 0 || x > canvas.width || y > canvas.height) return null;
+    // Use CSS pixels (client coordinates) — do NOT multiply by devicePixelRatio here
+    const x = clientX - bounds.left;
+    const y = clientY - bounds.top;
+    // compare against clientWidth/clientHeight (CSS pixels)
+    if (x < 0 || y < 0 || x > canvas.clientWidth || y > canvas.clientHeight) return null;
     return { x, y };
   }, []);
 
