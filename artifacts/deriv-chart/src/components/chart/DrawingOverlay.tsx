@@ -192,14 +192,17 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     const logical = chart.timeScale().coordinateToLogical(x);
     const price = series.coordinateToPrice(y);
     if (logical == null || price == null) return null;
-    const nextLogical = Number(logical);
+    
     const directTime = chart.timeScale().coordinateToTime(x);
     if (typeof directTime === 'number') {
-      return { time: directTime, price, logical: nextLogical };
+      return { time: directTime, price, logical: Number(logical) };
     }
+    
     if (!referencePoint) return null;
     const referenceLogical = getPointLogical(referencePoint);
     if (referenceLogical == null) return null;
+    const nextLogical = Number(logical);
+    
     return {
       time: referencePoint.time + Math.round((nextLogical - referenceLogical) * timeframe),
       price,
@@ -813,7 +816,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       if (draggingHandle) {
         const drawing = drawingsRef.current.find((item) => item.id === draggingHandle.drawingId);
         if (!drawing || drawing.locked) return;
-        let nextPoint = toChartPoint(canvasPoint.x, canvasPoint.y, drawing.points[draggingHandle.pointIndex]);
+        const referencePoint = drawing.points[0]; // Use first point as reference
+        let nextPoint = toChartPoint(canvasPoint.x, canvasPoint.y, referencePoint);
         if (!nextPoint) return;
 
         if (drawing.type === 'rr' && drawing.points.length >= 2) {
@@ -840,10 +844,8 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           }
         }
 
-        const logical = chart.timeScale().coordinateToLogical(canvasPoint.x);
-        const nextPointWithLogical = { ...nextPoint, logical: logical != null ? Number(logical) : nextPoint.logical };
         const nextPoints = drawing.points.map((point, index) =>
-          index === draggingHandle.pointIndex ? nextPointWithLogical : point
+          index === draggingHandle.pointIndex ? nextPoint : point
         );
 
         suppressNextClickRef.current = true;
