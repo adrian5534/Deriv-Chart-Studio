@@ -1237,7 +1237,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           }
         }
 
-        // Preserve logical coordinate
         const logical = chart.timeScale().coordinateToLogical(canvasPoint.x);
         const nextPointWithLogical = {
           ...nextPoint,
@@ -1283,9 +1282,9 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       setDraggingDrawing(null);
     };
 
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', stopDragging);
-    window.addEventListener('pointercancel', stopDragging);
+    window.addEventListener('pointermove', handlePointerMove, { passive: false });
+    window.addEventListener('pointerup', stopDragging, { passive: false });
+    window.addEventListener('pointercancel', stopDragging, { passive: false });
 
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
@@ -1366,7 +1365,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     (drawingId: string, pointIndex: number) => (event: React.PointerEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      suppressNextClickRef.current = true; // Prevent chart click after drag
+      suppressNextClickRef.current = true;
       syncSelection(drawingId);
       setDraggingHandle({ drawingId, pointIndex });
     };
@@ -1390,7 +1389,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
             type="button"
             aria-label={`Move drawing point ${handle.pointIndex + 1}`}
             onPointerDown={startHandleDrag(handle.drawingId, handle.pointIndex)}
-            onTouchStart={(e) => e.preventDefault()}
             className="absolute rounded-full border-2 bg-white shadow-sm"
             style={{
               left: handle.x - 7,
