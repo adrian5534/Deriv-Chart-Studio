@@ -1,5 +1,5 @@
 import React from 'react';
-import { MousePointer2, TrendingUp, Minus, Square, Divide, ArrowUpRight, ArrowDownRight, Type, Trash2 } from 'lucide-react';
+import { MousePointer2, TrendingUp, Minus, Square, Divide, ArrowUpRight, ArrowDownRight, Trash2 } from 'lucide-react';
 import { useChartStore, DrawingTool } from '../../store/use-chart-store';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -14,21 +14,21 @@ const tools: { id: DrawingTool; icon: React.ReactNode; label: string }[] = [
 ];
 
 export default function LeftToolbar() {
-  const activeTool = useChartStore(s => s.activeTool);
-  const setActiveTool = useChartStore(s => s.setActiveTool);
-  const clearDrawings = useChartStore(s => s.clearDrawings);
+  const activeTool = useChartStore((s) => s.activeTool);
+  const setActiveTool = useChartStore((s) => s.setActiveTool);
+  const clearDrawings = useChartStore((s) => s.clearDrawings);
 
   return (
-    <div className="w-14 bg-card border-r border-border flex flex-col items-center py-4 gap-2 z-20">
-      {tools.map(tool => (
+    <div className="w-14 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-4 gap-2 z-20">
+      {tools.map((tool) => (
         <Tooltip key={tool.id} delayDuration={0}>
           <TooltipTrigger asChild>
             <button
               onClick={() => setActiveTool(tool.id)}
               className={`p-2.5 rounded-lg transition-colors duration-200 ${
-                activeTool === tool.id 
-                  ? 'bg-primary/20 text-primary' 
-                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                activeTool === tool.id
+                  ? 'bg-blue-500/20 text-blue-400'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
               }`}
             >
               {tool.icon}
@@ -40,13 +40,13 @@ export default function LeftToolbar() {
         </Tooltip>
       ))}
 
-      <div className="w-8 h-[1px] bg-border my-2" />
+      <div className="w-8 h-[1px] bg-slate-700 my-2" />
 
       <Tooltip delayDuration={0}>
         <TooltipTrigger asChild>
           <button
             onClick={clearDrawings}
-            className="p-2.5 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors duration-200"
+            className="p-2.5 rounded-lg text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-colors duration-200"
           >
             <Trash2 size={18} />
           </button>
