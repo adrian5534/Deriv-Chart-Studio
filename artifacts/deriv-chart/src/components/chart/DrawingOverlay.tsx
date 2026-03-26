@@ -211,6 +211,22 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     return container.getBoundingClientRect();
   }, []);
 
+  const getCanvasPointFromClient = useCallback((clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+
+    const bounds = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const x = (clientX - bounds.left) * dpr;
+    const y = (clientY - bounds.top) * dpr;
+
+    if (x < 0 || y < 0 || x > canvas.width || y > canvas.height) {
+      return null;
+    }
+
+    return { x, y };
+  }, []);
+
   const isDrawingVisibleOnTimeframe = useCallback((drawing: Drawing) => {
     if (drawing.visibleTimeframes == null) {
       return true;
@@ -236,31 +252,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
 
     return Number(logical);
   }, [chart]);
-
-  const projectPoint = useCallback((point: Point) => {
-    const xFromTime = chart.timeScale().timeToCoordinate(point.time as never);
-    const x =
-      xFromTime ??
-      (typeof point.logical === 'number'
-        ? chart.timeScale().logicalToCoordinate(point.logical as Logical)
-        : null);
-
-    const y = series.priceToCoordinate(point.price);
-
-    if (x == null || y == null) return null;
-
-    return { x, y };
-  }, [chart, series]);
-
-  const getCanvasPointFromClient = useCallback((clientX: number, clientY: number) => {
-    const bounds = getCanvasBounds();
-    if (!bounds) return null;
-
-    return {
-      x: clientX - bounds.left,
-      y: clientY - bounds.top,
-    };
-  }, [getCanvasBounds]);
 
   const toChartPoint = useCallback((x: number, y: number, referencePoint?: Point | null): Point | null => {
     const logical = chart.timeScale().coordinateToLogical(x);
@@ -297,13 +288,32 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     };
   }, [chart, getPointLogical, series, timeframe]);
 
+  const projectPoint = useCallback((point: Point) => {
+    // For RR drawings, always use price to determine Y coordinate
+    // Don't recalculate based on time/logical on timeframe changes
+    const y = series.priceToCoordinate(point.price);
+
+    // For X coordinate, prefer logical if available (more stable across timeframes)
+    let x: number | null = null;
+    
+    if (typeof point.logical === 'number') {
+      x = chart.timeScale().logicalToCoordinate(point.logical as Logical);
+    }
+    
+    if (x == null) {
+      x = chart.timeScale().timeToCoordinate(point.time as never);
+    }
+
+    if (x == null || y == null) return null;
+
+    return { x, y };
+  }, [chart, series]);
+
   const toLogicalPricePoint = useCallback((x: number, y: number) => {
     const logical = chart.timeScale().coordinateToLogical(x);
     const price = series.coordinateToPrice(y);
 
-    if (logical == null || price == null) {
-      return null;
-    }
+    if (logical == null || price == null) return null;
 
     return {
       logical: Number(logical),

@@ -128,12 +128,20 @@ function clampFillOpacity(value: number | undefined) {
   return Math.max(0, Math.min(1, value));
 }
 
+// When normalizing RR drawings, preserve logical coordinates
 function normalizeDrawing(
   drawing: Omit<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'> &
     Partial<Pick<Drawing, 'color' | 'lineWidth' | 'lineStyle' | 'fillOpacity' | 'locked'>>,
 ): Drawing {
+  // For RR drawings, ensure all points have logical coordinates
+  const normalizedPoints = drawing.points.map((point) => ({
+    ...point,
+    logical: typeof point.logical === 'number' ? point.logical : undefined,
+  }));
+
   return {
     ...drawing,
+    points: normalizedPoints as Point[],
     color: drawing.color || (drawing.rrType === 'long' ? '#26a69a' : drawing.rrType === 'short' ? '#ef5350' : DEFAULT_DRAWING_STYLE.color),
     lineWidth: clampLineWidth(drawing.lineWidth),
     lineStyle: drawing.lineStyle || DEFAULT_DRAWING_STYLE.lineStyle,
