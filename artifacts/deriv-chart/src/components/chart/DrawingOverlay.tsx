@@ -195,7 +195,11 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     
     const directTime = chart.timeScale().coordinateToTime(x);
     if (typeof directTime === 'number') {
-      return { time: directTime, price, logical: Number(logical) };
+      return { 
+        time: directTime, 
+        price, 
+        logical: Number(logical) 
+      };
     }
     
     if (!referencePoint) return null;
@@ -816,9 +820,13 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       if (draggingHandle) {
         const drawing = drawingsRef.current.find((item) => item.id === draggingHandle.drawingId);
         if (!drawing || drawing.locked) return;
-        const referencePoint = drawing.points[0]; // Use first point as reference
+        
+        const referencePoint = drawing.points[0];
         let nextPoint = toChartPoint(canvasPoint.x, canvasPoint.y, referencePoint);
         if (!nextPoint) return;
+
+        // Store the logical value before any price adjustments
+        const preservedLogical = nextPoint.logical;
 
         if (drawing.type === 'rr' && drawing.points.length >= 2) {
           const rrType = (drawing as any).rrType ?? 'long';
@@ -844,6 +852,9 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           }
         }
 
+        // Preserve the logical coordinate
+        nextPoint.logical = preservedLogical;
+        
         const nextPoints = drawing.points.map((point, index) =>
           index === draggingHandle.pointIndex ? nextPoint : point
         );
