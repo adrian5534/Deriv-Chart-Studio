@@ -104,7 +104,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       autoSize: true,
     });
 
-    const candleSeries = chart.addSeries('Candlestick', {
+    const candleSeries = chart.addCandlestickSeries({
       upColor: '#26a69a',
       downColor: '#ef5350',
       borderVisible: false,
@@ -262,7 +262,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
         {isReady && chartRef.current && seriesRef.current && (
           <DrawingOverlay
             chart={chartRef.current}
-            series={seriesRef.current}
+            series={seriesRef.current as ISeriesApi<'Candlestick', 'Time'>}
             redrawKey={overlayRedrawKey}
           />
         )}
