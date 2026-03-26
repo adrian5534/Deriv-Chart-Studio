@@ -1006,8 +1006,12 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       const canvasPoint = getCanvasPointFromClient(event.clientX, event.clientY);
       if (!canvasPoint) return;
 
+      // Check if clicking a handle first
       const handleHit = findHandleAt(canvasPoint.x, canvasPoint.y);
-      if (handleHit) return;
+      if (handleHit) {
+        // Handle drag will be started by the button's onPointerDown
+        return;
+      }
 
       const drawingId = findDrawingAt(canvasPoint.x, canvasPoint.y);
       if (!drawingId) return;
@@ -1052,209 +1056,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
   ]);
 
   useEffect(() => {
-    const handleScaleChange = () => {
-      renderDrawings();
-      bumpOverlay();
-    };
-
-    const handleChartClick = (param: MouseEventParams) => {
-      if (suppressNextClickRef.current) {
-        suppressNextClickRef.current = false;
-        return;
-      }
-
-      if (!param.point) return;
-
-      const tool = activeToolRef.current;
-
-      if (tool === 'cursor') {
-        const handleHit = findHandleAt(param.point.x, param.point.y);
-        if (handleHit) {
-          syncSelection(handleHit.drawingId);
-          renderDrawings();
-          bumpOverlay();
-          return;
-        }
-
-        const drawingHit = findDrawingAt(param.point.x, param.point.y);
-        syncSelection(drawingHit);
-        renderDrawings();
-        bumpOverlay();
-        return;
-      }
-
-      // Drawing creation
-      if (!currentDrawIdRef.current) {
-        const firstPoint = toChartPoint(param.point.x, param.point.y);
-        if (!firstPoint) return;
-
-        const id = uuidv4();
-        currentDrawIdRef.current = id;
-
-        const isRRLong = tool === 'rrLong';
-        const isRRShort = tool === 'rrShort';
-
-        useChartStore.getState().addDrawing({
-          id,
-          type: isRRLong || isRRShort ? 'rr' : tool,
-          points: [firstPoint],
-          baseTimeframe: timeframe,
-          rrMultiplier: 2,
-          ...(isRRLong && { rrType: 'long' }),
-          ...(isRRShort && { rrType: 'short' }),
-        });
-
-        syncSelection(null);
-        renderDrawings();
-        bumpOverlay();
-
-        if (tool === 'hline') {
-          currentDrawIdRef.current = null;
-          useChartStore.getState().setActiveTool('cursor');
-        }
-
-        return;
-      }
-
-      const id = currentDrawIdRef.current;
-      const existing = drawingsRef.current.find((drawing) => drawing.id === id);
-      if (!existing || existing.points.length === 0) return;
-
-      let nextPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
-      if (!nextPoint) return;
-
-      // For RR tool, apply constraints on click to finalize the point
-      if (tool === 'rrLong' || tool === 'rrShort') {
-        const entryPrice = existing.points[0].price;
-        const rrType = tool === 'rrLong' ? 'long' : 'short';
-
-        if (existing.points.length === 1) {
-          // Finalizing stop point
-          if (rrType === 'long') {
-            if (nextPoint.price >= entryPrice) {
-              nextPoint.price = entryPrice - 0.0001;
-            }
-          } else {
-            if (nextPoint.price <= entryPrice) {
-              nextPoint.price = entryPrice + 0.0001;
-            }
-          }
-          
-          useChartStore.getState().updateDrawing(id, {
-            points: [...existing.points, nextPoint],
-          });
-          return;
-        } else if (existing.points.length === 2) {
-          // Finalizing target point
-          const stopPrice = existing.points[1].price;
-          if (rrType === 'long') {
-            if (nextPoint.price <= entryPrice) {
-              nextPoint.price = entryPrice + 0.0001;
-            }
-            if (nextPoint.price <= stopPrice) {
-              nextPoint.price = stopPrice + 0.0001;
-            }
-          } else {
-            if (nextPoint.price >= entryPrice) {
-              nextPoint.price = entryPrice - 0.0001;
-            }
-            if (nextPoint.price >= stopPrice) {
-              nextPoint.price = stopPrice - 0.0001;
-            }
-          }
-          
-          useChartStore.getState().updateDrawing(id, {
-            points: [...existing.points, nextPoint],
-          });
-          currentDrawIdRef.current = null;
-          useChartStore.getState().setActiveTool('cursor');
-          syncSelection(null);
-          renderDrawings();
-          bumpOverlay();
-          return;
-        }
-      }
-
-      // For other tools (trendline, rect, fib, ray)
-      useChartStore.getState().updateDrawing(id, {
-        points: [...existing.points.slice(0, 1), nextPoint],
-      });
-
-      currentDrawIdRef.current = null;
-      useChartStore.getState().setActiveTool('cursor');
-      syncSelection(null);
-      renderDrawings();
-      bumpOverlay();
-    };
-
-    const handleCrosshairMove = (param: MouseEventParams) => {
-      const tool = activeToolRef.current;
-
-      if (tool !== 'cursor') {
-        const id = currentDrawIdRef.current;
-        if (!id || !param.point) return;
-
-        const existing = drawingsRef.current.find((drawing) => drawing.id === id);
-        if (!existing || existing.points.length === 0) return;
-
-        let previewPoint = toChartPoint(param.point.x, param.point.y, existing.points[0]);
-        if (!previewPoint) return;
-
-        // For RR, update preview without clamping - let user see their intended position
-        if (tool === 'rrLong' || tool === 'rrShort') {
-          useChartStore.getState().updateDrawing(id, {
-            points: existing.points.map((point, idx) => 
-              idx === existing.points.length - 1 ? previewPoint : point
-            ),
-          });
-        } else {
-          useChartStore.getState().updateDrawing(id, {
-            points: [existing.points[0], previewPoint],
-          });
-        }
-
-        return;
-      }
-
-      if (draggingHandle || draggingDrawing) return;
-      if (!param.point) return;
-
-      const drawingHit =
-        findHandleAt(param.point.x, param.point.y)?.drawingId ??
-        findDrawingAt(param.point.x, param.point.y);
-
-      if (hoveredDrawingIdRef.current !== drawingHit) {
-        hoveredDrawingIdRef.current = drawingHit;
-        renderDrawings();
-        bumpOverlay();
-      }
-    };
-
-    chart.subscribeClick(handleChartClick);
-    chart.subscribeCrosshairMove(handleCrosshairMove);
-    chart.timeScale().subscribeVisibleLogicalRangeChange(handleScaleChange);
-
-    renderDrawings();
-    bumpOverlay();
-
-    return () => {
-      chart.unsubscribeClick(handleChartClick);
-      chart.unsubscribeCrosshairMove(handleCrosshairMove);
-      chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleScaleChange);
-    };
-  }, [
-    bumpOverlay,
-    chart,
-    draggingDrawing,
-    draggingHandle,
-    findDrawingAt,
-    findHandleAt,
-    renderDrawings,
-    syncSelection,
-    toChartPoint,
-  ]);
-
-  useEffect(() => {
     if (!draggingHandle && !draggingDrawing) return;
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -1285,30 +1086,22 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
           const pointIndex = draggingHandle.pointIndex;
 
           if (rrType === 'long') {
-            // For long: stop (point 1) must be BELOW entry, target (point 2) must be ABOVE entry
             if (pointIndex === 1) {
-              // Stop point - clamp to below entry
               nextPoint.price = Math.min(nextPoint.price, entryPrice - 0.0001);
             } else if (pointIndex === 2) {
-              // Target point - clamp to above entry AND above stop
               nextPoint.price = Math.max(nextPoint.price, Math.max(entryPrice + 0.0001, stopPrice + 0.0001));
             } else if (pointIndex === 0) {
-              // Entry point - can move but validate constraints
               if (targetPrice !== undefined) {
                 nextPoint.price = Math.min(nextPoint.price, targetPrice - 0.0001);
               }
               nextPoint.price = Math.max(nextPoint.price, stopPrice + 0.0001);
             }
           } else if (rrType === 'short') {
-            // For short: stop (point 1) must be ABOVE entry, target (point 2) must be BELOW entry
             if (pointIndex === 1) {
-              // Stop point - clamp to above entry
               nextPoint.price = Math.max(nextPoint.price, entryPrice + 0.0001);
             } else if (pointIndex === 2) {
-              // Target point - clamp to below entry AND below stop
               nextPoint.price = Math.min(nextPoint.price, Math.min(entryPrice - 0.0001, stopPrice - 0.0001));
             } else if (pointIndex === 0) {
-              // Entry point - can move but validate constraints
               if (targetPrice !== undefined) {
                 nextPoint.price = Math.max(nextPoint.price, targetPrice + 0.0001);
               }
@@ -1352,7 +1145,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
             logical:
               typeof point.logical === 'number'
                 ? point.logical + logicalDelta
-                : logicalDelta,
+                : undefined,
           })),
         });
       }
@@ -1382,38 +1175,6 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
     chart,
   ]);
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && currentDrawIdRef.current) {
-        useChartStore.getState().removeDrawing(currentDrawIdRef.current);
-        currentDrawIdRef.current = null;
-        useChartStore.getState().setActiveTool('cursor');
-        renderDrawings();
-        bumpOverlay();
-      }
-
-      if (
-        (event.key === 'Delete' || event.key === 'Backspace') &&
-        selectedDrawingIdRef.current &&
-        activeToolRef.current === 'cursor'
-      ) {
-        const selected = drawingsRef.current.find(
-          (drawing) => drawing.id === selectedDrawingIdRef.current,
-        );
-
-        if (selected?.locked) return;
-
-        useChartStore.getState().removeDrawing(selectedDrawingIdRef.current);
-        syncSelection(null);
-        renderDrawings();
-        bumpOverlay();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [bumpOverlay, renderDrawings, syncSelection]);
-
   const startHandleDrag =
     (drawingId: string, pointIndex: number) => (event: React.PointerEvent) => {
       event.preventDefault();
@@ -1441,10 +1202,7 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
             type="button"
             aria-label={`Move drawing point ${handle.pointIndex + 1}`}
             onPointerDown={startHandleDrag(handle.drawingId, handle.pointIndex)}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
+            onTouchStart={(e) => e.preventDefault()}
             className="absolute rounded-full border-2 bg-white shadow-sm"
             style={{
               left: handle.x - 7,
