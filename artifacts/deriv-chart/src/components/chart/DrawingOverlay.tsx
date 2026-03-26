@@ -761,29 +761,33 @@ export default function DrawingOverlay({ chart, series, redrawKey }: DrawingOver
       if (tool === 'rrLong' || tool === 'rrShort') {
         const entryPrice = existing.points[0].price;
         const rrType = tool === 'rrLong' ? 'long' : 'short';
-        const EPS = Math.max(Math.abs(entryPrice) * 1e-6, 1e-6);
+        const EPS = Math.max(Math.abs(entryPrice) * 1e-6, 1e-8);
 
         if (existing.points.length === 1) {
           // second click = stop. enforce stop on correct side of entry
           if (rrType === 'long') {
-            if (!(nextPoint.price < entryPrice - EPS)) nextPoint.price = entryPrice - EPS;
+            if (nextPoint.price >= entryPrice) nextPoint.price = entryPrice - EPS;
           } else {
-            if (!(nextPoint.price > entryPrice + EPS)) nextPoint.price = entryPrice + EPS;
+            if (nextPoint.price <= entryPrice) nextPoint.price = entryPrice + EPS;
           }
           useChartStore.getState().updateDrawing(id, { points: [...existing.points, nextPoint] });
           return;
         } else if (existing.points.length === 2) {
-          // third click = target. enforce target beyond entry on the correct side
+          // third click = target. Ensure target is beyond BOTH entry and stop on the correct side
           const stopPrice = existing.points[1].price;
 
           if (rrType === 'long') {
-            // require target > entry and target > stop (stop is expected < entry)
-            const minAllowed = Math.max(entryPrice + EPS, stopPrice + EPS);
-            if (nextPoint.price <= minAllowed) nextPoint.price = minAllowed;
+            const minAllowed = Math.max(entryPrice, stopPrice) + EPS;
+            console.debug('RR target (long) values', { entryPrice, stopPrice, requested: nextPoint.price, minAllowed });
+            if (!Number.isFinite(nextPoint.price) || nextPoint.price <= minAllowed) {
+              nextPoint.price = minAllowed;
+            }
           } else {
-            // short: require target < entry and target < stop (stop is expected > entry)
-            const maxAllowed = Math.min(entryPrice - EPS, stopPrice - EPS);
-            if (nextPoint.price >= maxAllowed) nextPoint.price = maxAllowed;
+            const maxAllowed = Math.min(entryPrice, stopPrice) - EPS;
+            console.debug('RR target (short) values', { entryPrice, stopPrice, requested: nextPoint.price, maxAllowed });
+            if (!Number.isFinite(nextPoint.price) || nextPoint.price >= maxAllowed) {
+              nextPoint.price = maxAllowed;
+            }
           }
 
           useChartStore.getState().updateDrawing(id, { points: [...existing.points, nextPoint] });
