@@ -205,8 +205,7 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
           if (data.subscription?.id) {
             subscriptionIdRef.current = data.subscription.id;
           }
-          const normalized = normalizeCandlesToSeconds(data);
-          onHistoricalData?.(normalized);
+          onHistoricalData(candles);
         }
         else if (data.msg_type === 'ohlc') {
           const c = data.ohlc;
@@ -312,20 +311,4 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
   }, [symbol, timeframe]);
 
   return { loadReplayCandles };
-}
-
-export function normalizeCandlesToSeconds(candles: CandleData[]): CandleData[] {
-  return candles.map((c) => {
-    let t = c.time as any;
-    // string ISO or numeric (ms or seconds)
-    if (typeof t === 'string') {
-      const parsed = Date.parse(t);
-      t = Number.isFinite(parsed) ? Math.floor(parsed / 1000) : Math.floor(Number(t));
-    } else {
-      const n = Number(t);
-      // if looks like ms (> 1e12) convert to seconds
-      t = n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
-    }
-    return { ...c, time: t };
-  });
 }
