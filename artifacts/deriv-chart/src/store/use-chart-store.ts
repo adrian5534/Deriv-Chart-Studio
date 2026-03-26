@@ -183,6 +183,19 @@ function normalizeDrawingUpdates(updates: Partial<Drawing>): Partial<Drawing> {
     normalized.lineStyle = DEFAULT_DRAWING_STYLE.lineStyle;
   }
 
+  // Preserve RR-specific fields
+  if ('rrType' in updates) {
+    normalized.rrType = updates.rrType;
+  }
+
+  if ('rrMultiplier' in updates) {
+    normalized.rrMultiplier = updates.rrMultiplier;
+  }
+
+  if ('baseTimeframe' in updates) {
+    normalized.baseTimeframe = updates.baseTimeframe;
+  }
+
   return normalized;
 }
 
@@ -229,11 +242,16 @@ export const useChartStore = create<ChartState>((set) => ({
   },
 
   updateDrawing: (id, updates) =>
-    set((state) => ({
-      drawings: state.drawings.map((drawing) =>
-        drawing.id === id ? { ...drawing, ...normalizeDrawingUpdates(updates) } : drawing,
-      ),
-    })),
+    set((state) => {
+      const drawing = state.drawings.find((d) => d.id === id);
+      if (!drawing) return state;
+
+      return {
+        drawings: state.drawings.map((d) =>
+          d.id === id ? { ...d, ...normalizeDrawingUpdates(updates) } : d,
+        ),
+      };
+    }),
 
   removeDrawing: (id) =>
     set((state) => ({
