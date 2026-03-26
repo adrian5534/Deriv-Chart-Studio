@@ -25,7 +25,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
   // --- Multi-timeframe replay alignment ---
   const [pendingRange, setPendingRange] = useState<{from: number, to: number} | null>(null);
-  const pendingLiveRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const pendingLiveRangeRef = useRef<{ from: number; to: number; width: number } | null>(null);
   const prevReplayActive = useRef(false);
   const prevTimeframe = useRef<string | null>(null);
   const prevReplayCandlesRef = useRef<CandleData[] | null>(null);
@@ -81,7 +81,9 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
         const fromTime = data[fromIdx]?.time;
         const toTime = data[toIdx]?.time;
         if (fromTime && toTime) {
-          pendingLiveRangeRef.current = { from: Number(fromTime), to: Number(toTime) };
+          // store both timestamps and the visible logical width so we restore bar-count/scroll
+          const width = Math.max(1, toIdx - fromIdx);
+          pendingLiveRangeRef.current = { from: Number(fromTime), to: Number(toTime), width };
         }
       }
     }
@@ -174,17 +176,18 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
         // If we captured a live pending range for this TF switch, map timestamps -> new logical indices and restore visible range
         if (pendingLiveRangeRef.current && chartRef.current) {
-          const { from, to } = pendingLiveRangeRef.current;
-          // find indices in sorted (ascending)
-          const fromIdx = sorted.findIndex(bar => Number(bar.time) >= from);
-          const toIdx = sorted.findIndex(bar => Number(bar.time) >= to);
-          if (fromIdx !== -1 && toIdx !== -1) {
+          const { from, width } = pendingLiveRangeRef.current;
+          // find the new starting index for the saved 'from' timestamp
+          const newFromIdx = sorted.findIndex(bar => Number(bar.time) >= from);
+          if (newFromIdx !== -1) {
+            const newToIdx = Math.min(sorted.length - 1, newFromIdx + Math.max(1, width));
             try {
-              chartRef.current.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+              chartRef.current.timeScale().setVisibleLogicalRange({ from: newFromIdx, to: newToIdx });
             } catch {
               // ignore setVisibleLogicalRange errors
             }
           }
+          // clear pending regardless — if mapping failed we'll fallback to default behaviour
           pendingLiveRangeRef.current = null;
         }
 
