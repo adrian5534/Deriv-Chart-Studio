@@ -88,6 +88,9 @@ export const stopAlertSound = () => {
   }
 };
 
+// Simple in-memory historical cache keyed by `${symbol}_${timeframe}`
+const historicalCache = new Map<string, CandleData[]>();
+
 export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTriggered }: UseDerivWebSocketProps) {
   const wsRef = useRef<WebSocket | null>(null);
   const subscriptionIdRef = useRef<string | null>(null);
@@ -100,6 +103,8 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
   const replayActive = useChartStore(s => s.replay.active);
   const setLivePrice = useChartStore(s => s.setLivePrice);
   const setConnectionStatus = useChartStore(s => s.setConnectionStatus);
+
+  const cacheKey = (s: string, tf: number) => `${s}_${tf}`;
 
   const sendMsg = useCallback((msg: object) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -161,6 +166,17 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
       return;
     }
 
+    // If we have cached historical data for this symbol/timeframe, deliver it synchronously
+    try {
+      const key = cacheKey(symbol, timeframe);
+      const cached = historicalCache.get(key);
+      if (cached && cached.length) {
+        onHistoricalData(cached);
+      }
+    } catch {
+      // ignore cache delivery errors
+    }
+
     // Unsubscribe previous stream
     if (subscriptionIdRef.current) {
       sendMsg({ forget: subscriptionIdRef.current });
@@ -181,7 +197,7 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
       granularity: timeframe,
       subscribe: 1,
     });
-  }, [symbol, timeframe, sendMsg]);
+  }, [symbol, timeframe, sendMsg, onHistoricalData]);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -219,6 +235,14 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
             low: parseFloat(c.low),
             close: parseFloat(c.close),
           }));
+
+          // cache and forward historical payload
+          try {
+            historicalCache.set(cacheKey(symbol, timeframe), candles);
+          } catch {
+            // ignore cache errors
+          }
+
           if (data.subscription?.id) {
             subscriptionIdRef.current = data.subscription.id;
           }
@@ -272,6 +296,7 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
         wsRef.current.close();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -303,6 +328,14 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
               low: parseFloat(c.low),
               close: parseFloat(c.close),
             }));
+
+            // store into cache for immediate reuse
+            try {
+              historicalCache.set(cacheKey(symbol, timeframe), candles);
+            } catch {
+              // ignore cache errors
+            }
+
             resolve(candles);
           }
         } catch {
@@ -329,5 +362,13 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
     });
   }, [symbol, timeframe]);
 
-  return { loadReplayCandles };
+  const getCachedHistorical = useCallback((s: string, tf: number) => {
+    try {
+      return historicalCache.get(cacheKey(s, tf)) ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  return { loadReplayCandles, getCachedHistorical };
 }

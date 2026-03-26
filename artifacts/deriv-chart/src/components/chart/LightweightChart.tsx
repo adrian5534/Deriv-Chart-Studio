@@ -135,7 +135,8 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     };
   }, [bumpOverlayRedraw]);
 
-  const { loadReplayCandles } = useDerivWebSocket({
+  // get both loadReplayCandles and cached getter from websocket hook
+  const { loadReplayCandles, getCachedHistorical } = useDerivWebSocket({
     onHistoricalData: (data) => {
       if (!seriesRef.current) return;
       if (useChartStore.getState().replay.active) return;
@@ -166,6 +167,25 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
     onAlertTriggered: (alert) => setTriggeredAlert(alert),
   });
+
+  // Use cached historical immediately on timeframe change to avoid blank reload
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    if (replayActive) return; // don't replace data during replay
+    try {
+      const symbol = useChartStore.getState().symbol;
+      const cached = getCachedHistorical ? getCachedHistorical(symbol, timeframe) : null;
+      if (cached && cached.length) {
+        const sorted = [...cached]
+          .sort((a, b) => (a.time as number) - (b.time as number))
+          .filter((value, index, array) => index === 0 || value.time !== array[index - 1].time);
+        seriesRef.current.setData(sorted);
+        requestAnimationFrame(() => bumpOverlayRedraw());
+      }
+    } catch {
+      // ignore
+    }
+  }, [timeframe, getCachedHistorical, replayActive, bumpOverlayRedraw]);
 
   useEffect(() => {
     if (replayTimerRef.current) {
