@@ -308,12 +308,26 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       return;
     }
 
-    const targetTime = normalizeTimeUnit(replayRef.current.time, Number(dataForFrame[0].time));
+    // ensure everything compared in seconds
+    const targetTimeSec = toSeconds(replayRef.current.time);
+    const sampleTimeSec = toSeconds(Number(dataForFrame[0].time));
+    const target = targetTimeSec; // both are seconds
 
-    const idx = findClosestBarIndexByTime(dataForFrame, targetTime);
+    const idx = findClosestBarIndexByTime(dataForFrame, target);
+    console.debug('replay mapping', {
+      timeframe,
+      requestedRaw: replayRef.current.time,
+      requestedSec: targetTimeSec,
+      sampleFirstRaw: dataForFrame[0].time,
+      sampleFirstSec: sampleTimeSec,
+      mappedIndex: idx,
+      mappedTime: idx >= 0 ? dataForFrame[idx].time : null,
+      dataLen: dataForFrame.length,
+    });
+
     if (idx >= 0) {
       replayRef.current.index = idx;
-      replayRef.current.time = dataForFrame[idx].time;
+      replayRef.current.time = toSeconds(Number(dataForFrame[idx].time));
 
       // Keep the same visible window size in bars (or compute based on current visible range)
       const visibleRange = chartRef.current?.timeScale().getVisibleLogicalRange();
@@ -330,6 +344,46 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       }
 
       setReplayIndex(idx);
+    } else {
+      requestDataForTimeframeAround(timeframe, replayRef.current.time);
+    }
+  }, [timeframe]);
+
+  // convert any epoch-like value to seconds (stable unit across app)
+  function toSeconds(epoch: number) {
+    if (!Number.isFinite(epoch)) return epoch;
+    return epoch > 1e12 ? Math.floor(epoch / 1000) : Math.floor(epoch);
+  }
+
+  useEffect(() => {
+    if (!replayRef.current.active || replayRef.current.time == null) return;
+    const dataForFrame = getSeriesDataForTimeframe(timeframe);
+    if (!dataForFrame || dataForFrame.length === 0) {
+      requestDataForTimeframeAround(timeframe, replayRef.current.time);
+      return;
+    }
+
+    // ensure everything compared in seconds
+    const targetTimeSec = toSeconds(replayRef.current.time);
+    const sampleTimeSec = toSeconds(Number(dataForFrame[0].time));
+    const target = targetTimeSec; // both are seconds
+
+    const idx = findClosestBarIndexByTime(dataForFrame, target);
+    console.debug('replay mapping', {
+      timeframe,
+      requestedRaw: replayRef.current.time,
+      requestedSec: targetTimeSec,
+      sampleFirstRaw: dataForFrame[0].time,
+      sampleFirstSec: sampleTimeSec,
+      mappedIndex: idx,
+      mappedTime: idx >= 0 ? dataForFrame[idx].time : null,
+      dataLen: dataForFrame.length,
+    });
+
+    if (idx >= 0) {
+      replayRef.current.index = idx;
+      replayRef.current.time = toSeconds(Number(dataForFrame[idx].time));
+      // ... rest unchanged ...
     } else {
       requestDataForTimeframeAround(timeframe, replayRef.current.time);
     }
