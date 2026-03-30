@@ -19,6 +19,8 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   const seriesRef = useRef<ISeriesApi<"Candlestick", Time> | null>(null);
   const replayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeframeSwitchCancelRef = useRef<AbortController | null>(null);
+  const timeframeSwitchAbortRef = useRef<AbortController | null>(null);
+  const lastTimeframeRef = useRef<number | null>(null); // Guard against repeated TF switches
 
   const [isReady, setIsReady] = useState(false);
   const [overlayRedrawKey, setOverlayRedrawKey] = useState(0);
@@ -244,6 +246,11 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   // SINGLE unified effect: On timeframe change while replayActive
   useEffect(() => {
     if (!replayActive) return;
+    
+    // Guard: if timeframe hasn't actually changed, skip
+    if (lastTimeframeRef.current === timeframe) return;
+    lastTimeframeRef.current = timeframe;
+
     const store = useChartStore.getState();
     const replay = store.replay || ({} as any);
     const startEpoch =

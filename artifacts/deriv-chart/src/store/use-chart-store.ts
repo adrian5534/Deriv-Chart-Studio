@@ -273,37 +273,12 @@ export const useChartStore = create<ChartState>((set) => ({
   clearAlerts: () => set({ alerts: [] }),
 
   setReplayState: (updates) =>
-    set((state) => {
-      const merged = { ...state.replay };
-      
-      // Deep merge replay updates
-      if ('candles' in updates && Array.isArray(updates.candles)) {
-        merged.candles = updates.candles;
-      }
-      if ('index' in updates && typeof updates.index === 'number') {
-        merged.index = updates.index;
-      }
-      if ('active' in updates) {
-        merged.active = updates.active === undefined ? merged.active : updates.active;
-      }
-      if ('playing' in updates) {
-        merged.playing = updates.playing === undefined ? merged.playing : updates.playing;
-      }
-      if ('speed' in updates && typeof updates.speed === 'number') {
-        merged.speed = updates.speed;
-      }
-      if ('date' in updates) {
-        merged.date = updates.date === undefined ? merged.date : updates.date;
-      }
-      if ('startEpoch' in updates) {
-        merged.startEpoch = updates.startEpoch;
-      }
-      if ('startProgress' in updates) {
-        merged.startProgress = updates.startProgress;
-      }
-
-      return { replay: merged };
-    }),
+    set((state) => ({
+      replay: {
+        ...state.replay,
+        ...updates,
+      },
+    })),
 
   stopReplay: () =>
     set((state) => ({
