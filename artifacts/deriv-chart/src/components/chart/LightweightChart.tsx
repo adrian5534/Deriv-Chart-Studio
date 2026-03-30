@@ -18,6 +18,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick", Time> | null>(null);
   const replayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeframeSwitchCancelRef = useRef<AbortController | null>(null);
 
   const [isReady, setIsReady] = useState(false);
   const [overlayRedrawKey, setOverlayRedrawKey] = useState(0);
@@ -303,16 +304,25 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     };
   }, [timeframe, replayActive, loadReplayCandles, setReplayState, bumpOverlayRedraw]);
 
-  // Main replay playback loop (skip if mid-timeframe-switch)
+  // On timeframe change: cancel any pending playback updates
   useEffect(() => {
-    if (isTimeframeSwitchingRef.current) return; // Don't interfere during TF switch
+    if (timeframeSwitchCancelRef.current) {
+      timeframeSwitchCancelRef.current.abort();
+    }
+    timeframeSwitchCancelRef.current = new AbortController();
+  }, [timeframe]);
 
+  // Main replay playback loop
+  useEffect(() => {
     if (replayTimerRef.current) {
       clearInterval(replayTimerRef.current);
       replayTimerRef.current = null;
     }
 
     if (!replayActive || !replayCandles.length || !seriesRef.current) return;
+
+    const signal = timeframeSwitchCancelRef.current?.signal;
+    if (signal?.aborted) return;
 
     const index = useChartStore.getState().replay.index;
 
@@ -326,6 +336,12 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     if (!replayPlaying) return;
 
     replayTimerRef.current = setInterval(() => {
+      if (signal?.aborted) {
+        clearInterval(replayTimerRef.current!);
+        replayTimerRef.current = null;
+        return;
+      }
+
       const { replay } = useChartStore.getState();
       if (!seriesRef.current || !replay.active) return;
 
