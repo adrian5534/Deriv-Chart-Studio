@@ -231,6 +231,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     }
   }, [timeframe, getCachedHistorical, replayActive, bumpOverlayRedraw]);
 
+  // Main replay playback loop
   useEffect(() => {
     if (replayTimerRef.current) {
       clearInterval(replayTimerRef.current);

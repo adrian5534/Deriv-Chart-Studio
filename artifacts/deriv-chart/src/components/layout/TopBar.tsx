@@ -34,64 +34,8 @@ export default function TopBar({ chartRef }: TopBarProps) {
 
   const selectedAsset = ASSETS.find(a => a.symbol === symbol);
 
-  // --- Enable timeframe switching in replay mode ---
-  useEffect(() => {
-    if (!replay.active) return;
-    if (!chartRef.current) return;
-    let cancelled = false;
-
-    if (replay.date) {
-      chartRef.current.loadReplayCandles(replay.date).then((candles) => {
-        if (cancelled) return;
-        if (!candles.length) return;
-
-        // Prefer aligning to the original replay start epoch (keeps same absolute dates).
-        // If startEpoch is not available, fall back to preserving progress ratio.
-        const startEpoch = typeof (replay as any).startEpoch === 'number'
-          ? (replay as any).startEpoch
-          : (replay.date ? Math.floor(new Date(replay.date).getTime() / 1000) : undefined);
-
-        if (typeof startEpoch === 'number') {
-          const startIdx = candles.findIndex(c => Number(c.time) >= startEpoch);
-          if (startIdx >= 0) {
-            setReplayState({
-              ...replay,
-              candles,
-              index: Math.max(0, Math.min(candles.length - 1, startIdx)),
-            });
-            return;
-          }
-          // if not found, fallthrough to progress mapping
-        }
-
-        const prevLen = (replay.candles?.length) ?? 0;
-        const prevIdx = typeof replay.index === 'number' ? replay.index : Math.min(5, prevLen - 1);
-        const fallbackStart = Math.min(5, candles.length - 1);
-
-        if (prevLen > 1 && prevIdx >= 0) {
-          const progress = prevLen > 1 ? prevIdx / (prevLen - 1) : 0;
-          const newIdx = Math.round(progress * Math.max(0, candles.length - 1));
-          setReplayState({
-            ...replay,
-            candles,
-            index: Math.max(0, Math.min(candles.length - 1, newIdx)),
-          });
-        } else {
-          setReplayState({
-            ...replay,
-            candles,
-            index: fallbackStart,
-          });
-        }
-      });
-    }
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeframe]);
-  // -------------------------------------------------
+  // Remove the old timeframe switching effect from TopBar
+  // LightweightChart now handles all replay TF logic via useEffect dependencies
 
   const handleStartReplay = async () => {
     if (!chartRef.current) return;
@@ -105,7 +49,7 @@ export default function TopBar({ chartRef }: TopBarProps) {
       }
 
       const startEpoch = Math.floor(new Date(replayDate).getTime() / 1000);
-      const initialIndex = Math.min(5, candles.length - 1); // same small offset as before
+      const initialIndex = Math.min(5, candles.length - 1);
       const startProgress = candles.length > 1 ? initialIndex / (candles.length - 1) : 0;
 
       setReplayState({
@@ -114,8 +58,8 @@ export default function TopBar({ chartRef }: TopBarProps) {
         playing: false,
         candles,
         index: initialIndex,
-        startEpoch,     // persisted so other timeframes can align to the same absolute start
-        startProgress,  // fallback progress mapping if exact epoch doesn't exist in new TF
+        startEpoch,
+        startProgress,
       } as any);
       setReplayDialogOpen(false);
     } finally {

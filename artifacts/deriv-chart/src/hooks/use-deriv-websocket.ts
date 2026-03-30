@@ -159,10 +159,18 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
     // Clear triggered alerts when changing asset
     triggeredAlertsRef.current.clear();
 
+    // If replay is active, don't subscribe to the live stream.
+    // This prevents duplicate subscribe requests and avoids overwriting replay data.
+    if (useChartStore.getState().replay?.active) {
+      // Remember what we requested so repeated calls while replay are ignored
+      lastRequestedRef.current = { symbol, timeframe };
+      return;
+    }
+
     // Avoid sending duplicate subscribe requests for same symbol/timeframe
     const last = lastRequestedRef.current;
     if (last && last.symbol === symbol && last.timeframe === timeframe && subscriptionIdRef.current) {
-      // already subscribed to this exact stream — skip
+      // Already subscribed to this exact stream — skip
       return;
     }
 
@@ -183,7 +191,7 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
       subscriptionIdRef.current = null;
     }
 
-    // remember what we requested so repeated calls don't resubscribe
+    // Remember what we requested so repeated calls don't resubscribe
     lastRequestedRef.current = { symbol, timeframe };
 
     // Request 1000 historical candles + subscribe to live stream
