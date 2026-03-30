@@ -344,10 +344,11 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
           index: Math.max(0, Math.min(sorted.length - 1, mappedIdx)),
         });
 
-        // update series slice so the chart visual doesn't restart
+        // update series with FULL SLICE up to current mapped index
         if (seriesRef.current) {
           try {
-            seriesRef.current.setData(sorted.slice(0, Math.max(1, mappedIdx + 1)));
+            const sliceLength = Math.max(1, mappedIdx + 1);
+            seriesRef.current.setData(sorted.slice(0, sliceLength));
             requestAnimationFrame(() => bumpOverlayRedraw());
           } catch {
             // ignore
