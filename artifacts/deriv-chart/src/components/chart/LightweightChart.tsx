@@ -29,6 +29,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   const prevReplayActive = useRef(false);
   const prevTimeframe = useRef<string | null>(null);
   const prevReplayCandlesRef = useRef<CandleData[] | null>(null);
+  const isTimeframeSwitchingRef = useRef(false);
   // ----------------------------------------
 
   const bumpOverlayRedraw = useCallback(() => {
@@ -231,8 +232,81 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     }
   }, [timeframe, getCachedHistorical, replayActive, bumpOverlayRedraw]);
 
-  // Main replay playback loop
+  // On timeframe change while replayActive
   useEffect(() => {
+    if (!replayActive) return;
+    const store = useChartStore.getState();
+    const replay = store.replay || ({} as any);
+    const startEpoch =
+      typeof replay.startEpoch === 'number'
+        ? Number(replay.startEpoch)
+        : Array.isArray(replay.candles) && typeof replay.index === 'number'
+        ? Number(replay.candles[replay.index]?.time)
+        : undefined;
+
+    if (!startEpoch) return;
+
+    isTimeframeSwitchingRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const iso = new Date(startEpoch * 1000).toISOString();
+        const loaded = await loadReplayCandles(iso);
+        if (cancelled || !loaded || !loaded.length) return;
+
+        const sorted = [...loaded].map((c: any) => ({ ...c, time: Number(c.time) })).sort((a, b) => a.time - b.time);
+
+        const currentReplay = useChartStore.getState().replay as any;
+        const currentIdx = currentReplay.index || 0;
+        const currentCandle = currentReplay.candles?.[currentIdx];
+        
+        let mappedIdx = 0;
+        if (currentCandle) {
+          const foundIdx = sorted.findIndex(c => Number(c.time) === Number(currentCandle.time));
+          if (foundIdx >= 0) {
+            mappedIdx = foundIdx;
+          } else {
+            let lo = 0, hi = sorted.length - 1;
+            while (lo < hi) {
+              const mid = (lo + hi) >> 1;
+              if (sorted[mid].time < startEpoch) lo = mid + 1;
+              else hi = mid;
+            }
+            mappedIdx = lo === 0 ? 0 : Math.abs(sorted[lo - 1].time - startEpoch) <= Math.abs(sorted[lo].time - startEpoch) ? lo - 1 : lo;
+          }
+        }
+
+        setReplayState({
+          ...replay,
+          candles: sorted,
+          index: Math.max(0, Math.min(sorted.length - 1, mappedIdx)),
+        });
+
+        if (seriesRef.current) {
+          try {
+            seriesRef.current.setData(sorted.slice(0, Math.max(1, mappedIdx + 1)));
+            requestAnimationFrame(() => bumpOverlayRedraw());
+          } catch {
+            // ignore
+          }
+        }
+      } catch {
+        // ignore
+      } finally {
+        isTimeframeSwitchingRef.current = false;
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      isTimeframeSwitchingRef.current = false;
+    };
+  }, [timeframe, replayActive, loadReplayCandles, setReplayState, bumpOverlayRedraw]);
+
+  // Main replay playback loop (skip if mid-timeframe-switch)
+  useEffect(() => {
+    if (isTimeframeSwitchingRef.current) return; // Don't interfere during TF switch
+
     if (replayTimerRef.current) {
       clearInterval(replayTimerRef.current);
       replayTimerRef.current = null;
@@ -312,111 +386,62 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
     if (!startEpoch) return;
 
+    isTimeframeSwitchingRef.current = true;
     let cancelled = false;
     (async () => {
       try {
-        // loadReplayCandles expects ISO date; convert seconds -> ms
         const iso = new Date(startEpoch * 1000).toISOString();
         const loaded = await loadReplayCandles(iso);
         if (cancelled || !loaded || !loaded.length) return;
 
         const sorted = [...loaded].map((c: any) => ({ ...c, time: Number(c.time) })).sort((a, b) => a.time - b.time);
 
-        // binary-search nearest index (sorted ascending)
-        let lo = 0;
-        let hi = sorted.length - 1;
-        while (lo < hi) {
-          const mid = (lo + hi) >> 1;
-          if (sorted[mid].time < startEpoch) lo = mid + 1;
-          else hi = mid;
+        const currentReplay = useChartStore.getState().replay as any;
+        const currentIdx = currentReplay.index || 0;
+        const currentCandle = currentReplay.candles?.[currentIdx];
+        
+        let mappedIdx = 0;
+        if (currentCandle) {
+          const foundIdx = sorted.findIndex(c => Number(c.time) === Number(currentCandle.time));
+          if (foundIdx >= 0) {
+            mappedIdx = foundIdx;
+          } else {
+            let lo = 0, hi = sorted.length - 1;
+            while (lo < hi) {
+              const mid = (lo + hi) >> 1;
+              if (sorted[mid].time < startEpoch) lo = mid + 1;
+              else hi = mid;
+            }
+            mappedIdx = lo === 0 ? 0 : Math.abs(sorted[lo - 1].time - startEpoch) <= Math.abs(sorted[lo].time - startEpoch) ? lo - 1 : lo;
+          }
         }
-        const mappedIdx =
-          lo === 0
-            ? 0
-            : Math.abs(sorted[lo - 1].time - startEpoch) <= Math.abs(sorted[lo].time - startEpoch)
-            ? lo - 1
-            : lo;
 
-        // update replay state but preserve active/playing flags
         setReplayState({
           ...replay,
           candles: sorted,
           index: Math.max(0, Math.min(sorted.length - 1, mappedIdx)),
         });
 
-        // update series with FULL SLICE up to current mapped index
         if (seriesRef.current) {
           try {
-            const sliceLength = Math.max(1, mappedIdx + 1);
-            seriesRef.current.setData(sorted.slice(0, sliceLength));
+            seriesRef.current.setData(sorted.slice(0, Math.max(1, mappedIdx + 1)));
             requestAnimationFrame(() => bumpOverlayRedraw());
           } catch {
             // ignore
           }
         }
       } catch {
-        // ignore load errors
+        // ignore
+      } finally {
+        isTimeframeSwitchingRef.current = false;
       }
     })();
 
     return () => {
       cancelled = true;
+      isTimeframeSwitchingRef.current = false;
     };
   }, [timeframe, replayActive, loadReplayCandles, setReplayState, bumpOverlayRedraw]);
-
-  // Ensure replay progress maps to new timeframe candles (prevent progress reset)
-  useEffect(() => {
-    if (!replayActive) {
-      prevReplayCandlesRef.current = null;
-      return;
-    }
-    // run only when replayCandles array reference changes (new TF loaded)
-    if (prevReplayCandlesRef.current === replayCandles) return;
-    prevReplayCandlesRef.current = replayCandles;
-
-    if (!replayCandles || !replayCandles.length) return;
-
-    const storeReplay = useChartStore.getState().replay as any;
-    const startEpoch = typeof storeReplay.startEpoch === 'number' ? storeReplay.startEpoch : undefined;
-    const startProgress = typeof storeReplay.startProgress === 'number' ? storeReplay.startProgress : undefined;
-    const prevIdx = typeof storeReplay.index === 'number' ? storeReplay.index : undefined;
-    const prevLen = Array.isArray(storeReplay.candles) ? storeReplay.candles.length : 0;
-
-    let mappedIndex = 0;
-    // Prefer aligning to absolute startEpoch if available
-    if (typeof startEpoch === 'number') {
-      const startIdx = replayCandles.findIndex(c => Number(c.time) >= startEpoch);
-      if (startIdx >= 0) {
-        mappedIndex = Math.max(0, Math.min(replayCandles.length - 1, startIdx));
-      } else if (typeof startProgress === 'number') {
-        mappedIndex = Math.round(startProgress * Math.max(0, replayCandles.length - 1));
-      } else if (typeof prevIdx === 'number' && prevLen > 1) {
-        // fallback: preserve relative progress ratio from previous TF
-        const progress = prevLen > 1 ? prevIdx / (prevLen - 1) : 0;
-        mappedIndex = Math.round(progress * Math.max(0, replayCandles.length - 1));
-      } else {
-        mappedIndex = Math.min(5, replayCandles.length - 1);
-      }
-    } else if (typeof startProgress === 'number') {
-      mappedIndex = Math.round(startProgress * Math.max(0, replayCandles.length - 1));
-    } else if (typeof prevIdx === 'number' && prevLen > 1) {
-      const progress = prevLen > 1 ? prevIdx / (prevLen - 1) : 0;
-      mappedIndex = Math.round(progress * Math.max(0, replayCandles.length - 1));
-    } else {
-      mappedIndex = Math.min(5, replayCandles.length - 1);
-    }
-
-    // Only update store if index actually differs (avoid loops)
-    if (mappedIndex !== storeReplay.index || storeReplay.candles !== replayCandles) {
-      setReplayState({
-        ...storeReplay,
-        candles: replayCandles,
-        index: mappedIndex,
-      });
-    }
-  // intentionally only depends on replayCandles and replayActive
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [replayCandles, replayActive]);
 
   useImperativeHandle(ref, () => ({
     getChart: () => chartRef.current,
