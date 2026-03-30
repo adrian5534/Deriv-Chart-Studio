@@ -20,18 +20,15 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   const replayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeframeSwitchCancelRef = useRef<AbortController | null>(null);
   const timeframeSwitchAbortRef = useRef<AbortController | null>(null);
-  const lastTimeframeRef = useRef<number | null>(null); // Guard against repeated TF switches
+  const lastTimeframeRef = useRef<number | null>(null);
 
   const [isReady, setIsReady] = useState(false);
   const [overlayRedrawKey, setOverlayRedrawKey] = useState(0);
   const [triggeredAlert, setTriggeredAlert] = useState<{ symbol: string; price: number; condition: string } | null>(null);
 
-  // --- Multi-timeframe replay alignment ---
   const [pendingRange, setPendingRange] = useState<{from: number, to: number} | null>(null);
   const pendingLiveRangeRef = useRef<{ from: number; to: number; width: number } | null>(null);
   const prevTimeframe = useRef<string | null>(null);
-  const timeframeSwitchAbortRef = useRef<AbortController | null>(null);
-  // ----------------------------------------
 
   const bumpOverlayRedraw = useCallback(() => {
     setOverlayRedrawKey((value) => value + 1);
@@ -51,7 +48,6 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       return;
     }
     if (prevTimeframe.current && prevTimeframe.current !== String(timeframe)) {
-      // Timeframe changed in replay mode
       const range = chartRef.current.timeScale().getVisibleLogicalRange();
       if (range && seriesRef.current) {
         const data = seriesRef.current.data();
@@ -160,7 +156,6 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     };
   }, [bumpOverlayRedraw]);
 
-  // get both loadReplayCandles and cached getter from websocket hook
   const { loadReplayCandles, getCachedHistorical } = useDerivWebSocket({
     onHistoricalData: (data) => {
       if (!seriesRef.current) return;
@@ -243,11 +238,10 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     timeframeSwitchCancelRef.current = new AbortController();
   }, [timeframe]);
 
-  // SINGLE unified effect: On timeframe change while replayActive
+  // On timeframe change while replayActive
   useEffect(() => {
     if (!replayActive) return;
     
-    // Guard: if timeframe hasn't actually changed, skip
     if (lastTimeframeRef.current === timeframe) return;
     lastTimeframeRef.current = timeframe;
 
