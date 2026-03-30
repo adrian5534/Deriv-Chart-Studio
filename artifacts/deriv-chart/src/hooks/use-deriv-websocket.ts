@@ -322,7 +322,7 @@ export function useDerivWebSocket({ onHistoricalData, onLiveUpdate, onAlertTrigg
 
       const startEpoch = Math.floor(new Date(date).getTime() / 1000);
       const endEpoch = Math.floor(Date.now() / 1000);
-      const reqId = 9999;
+      const reqId = Math.floor(Math.random() * 1000000) + 10000; // unique ID each time
 
       const handler = (msg: MessageEvent) => {
         try {
