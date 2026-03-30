@@ -27,10 +27,8 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
   // --- Multi-timeframe replay alignment ---
   const [pendingRange, setPendingRange] = useState<{from: number, to: number} | null>(null);
   const pendingLiveRangeRef = useRef<{ from: number; to: number; width: number } | null>(null);
-  const prevReplayActive = useRef(false);
   const prevTimeframe = useRef<string | null>(null);
-  const prevReplayCandlesRef = useRef<CandleData[] | null>(null);
-  const isTimeframeSwitchingRef = useRef(false);
+  const timeframeSwitchAbortRef = useRef<AbortController | null>(null);
   // ----------------------------------------
 
   const bumpOverlayRedraw = useCallback(() => {
@@ -67,9 +65,9 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     prevTimeframe.current = String(timeframe);
   }, [timeframe, replayActive]);
 
-  // Capture visible timestamps before timeframe changes in live mode so we can reapply after new data
+  // Capture visible timestamps before timeframe changes in live mode
   useEffect(() => {
-    if (replayActive) return; // replay handles its own mapping
+    if (replayActive) return;
     if (!chartRef.current || !seriesRef.current) {
       prevTimeframe.current = String(timeframe);
       return;
@@ -83,7 +81,6 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
         const fromTime = data[fromIdx]?.time;
         const toTime = data[toIdx]?.time;
         if (fromTime && toTime) {
-          // store both timestamps and the visible logical width so we restore bar-count/scroll
           const width = Math.max(1, toIdx - fromIdx);
           pendingLiveRangeRef.current = { from: Number(fromTime), to: Number(toTime), width };
         }
@@ -92,12 +89,11 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     prevTimeframe.current = String(timeframe);
   }, [timeframe, replayActive]);
 
-  // After candles are loaded for new timeframe, set visible range to match previous timestamps
+  // After candles are loaded for new timeframe, restore visible range
   useEffect(() => {
     if (!pendingRange || !chartRef.current || !seriesRef.current) return;
     const data = seriesRef.current.data();
     if (!data.length) return;
-    // Find logical bars for these timestamps
     const fromIdx = data.findIndex(bar => Number(bar.time) >= pendingRange.from);
     const toIdx = data.findIndex(bar => Number(bar.time) >= pendingRange.to);
     if (fromIdx !== -1 && toIdx !== -1) {
@@ -155,7 +151,6 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       if (replayTimerRef.current) {
         clearInterval(replayTimerRef.current);
       }
-
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -176,20 +171,17 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       try {
         seriesRef.current.setData(sorted);
 
-        // If we captured a live pending range for this TF switch, map timestamps -> new logical indices and restore visible range
         if (pendingLiveRangeRef.current && chartRef.current) {
           const { from, width } = pendingLiveRangeRef.current;
-          // find the new starting index for the saved 'from' timestamp
           const newFromIdx = sorted.findIndex(bar => Number(bar.time) >= from);
           if (newFromIdx !== -1) {
             const newToIdx = Math.min(sorted.length - 1, newFromIdx + Math.max(1, width));
             try {
               chartRef.current.timeScale().setVisibleLogicalRange({ from: newFromIdx, to: newToIdx });
             } catch {
-              // ignore setVisibleLogicalRange errors
+              // ignore
             }
           }
-          // clear pending regardless — if mapping failed we'll fallback to default behaviour
           pendingLiveRangeRef.current = null;
         }
 
@@ -214,10 +206,10 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     onAlertTriggered: (alert) => setTriggeredAlert(alert),
   });
 
-  // Use cached historical immediately on timeframe change to avoid blank reload
+  // Use cached historical immediately on timeframe change
   useEffect(() => {
     if (!seriesRef.current) return;
-    if (replayActive) return; // don't replace data during replay
+    if (replayActive) return;
     try {
       const symbol = useChartStore.getState().symbol;
       const cached = getCachedHistorical ? getCachedHistorical(symbol, timeframe) : null;
@@ -233,7 +225,23 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     }
   }, [timeframe, getCachedHistorical, replayActive, bumpOverlayRedraw]);
 
-  // On timeframe change while replayActive
+  // Abort pending timeframe switch when starting a new one
+  useEffect(() => {
+    if (timeframeSwitchAbortRef.current) {
+      timeframeSwitchAbortRef.current.abort();
+    }
+    timeframeSwitchAbortRef.current = new AbortController();
+  }, [timeframe]);
+
+  // Cancel playback loop on timeframe change
+  useEffect(() => {
+    if (timeframeSwitchCancelRef.current) {
+      timeframeSwitchCancelRef.current.abort();
+    }
+    timeframeSwitchCancelRef.current = new AbortController();
+  }, [timeframe]);
+
+  // SINGLE unified effect: On timeframe change while replayActive
   useEffect(() => {
     if (!replayActive) return;
     const store = useChartStore.getState();
@@ -247,15 +255,21 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
     if (!startEpoch) return;
 
-    isTimeframeSwitchingRef.current = true;
+    const signal = timeframeSwitchAbortRef.current?.signal;
     let cancelled = false;
+
     (async () => {
       try {
         const iso = new Date(startEpoch * 1000).toISOString();
         const loaded = await loadReplayCandles(iso);
-        if (cancelled || !loaded || !loaded.length) return;
+        
+        if (cancelled || signal?.aborted || !loaded || !loaded.length) {
+          return;
+        }
 
-        const sorted = [...loaded].map((c: any) => ({ ...c, time: Number(c.time) })).sort((a, b) => a.time - b.time);
+        const sorted = [...loaded]
+          .map((c: any) => ({ ...c, time: Number(c.time) }))
+          .sort((a, b) => a.time - b.time);
 
         const currentReplay = useChartStore.getState().replay as any;
         const currentIdx = currentReplay.index || 0;
@@ -277,40 +291,30 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
           }
         }
 
-        setReplayState({
-          ...replay,
-          candles: sorted,
-          index: Math.max(0, Math.min(sorted.length - 1, mappedIdx)),
-        });
+        if (!cancelled && !signal?.aborted) {
+          setReplayState({
+            candles: sorted,
+            index: Math.max(0, Math.min(sorted.length - 1, mappedIdx)),
+          });
 
-        if (seriesRef.current) {
-          try {
-            seriesRef.current.setData(sorted.slice(0, Math.max(1, mappedIdx + 1)));
-            requestAnimationFrame(() => bumpOverlayRedraw());
-          } catch {
-            // ignore
+          if (seriesRef.current) {
+            try {
+              seriesRef.current.setData(sorted.slice(0, Math.max(1, mappedIdx + 1)));
+              requestAnimationFrame(() => bumpOverlayRedraw());
+            } catch {
+              // ignore
+            }
           }
         }
       } catch {
-        // ignore
-      } finally {
-        isTimeframeSwitchingRef.current = false;
+        // ignore load errors
       }
     })();
 
     return () => {
       cancelled = true;
-      isTimeframeSwitchingRef.current = false;
     };
   }, [timeframe, replayActive, loadReplayCandles, setReplayState, bumpOverlayRedraw]);
-
-  // On timeframe change: cancel any pending playback updates
-  useEffect(() => {
-    if (timeframeSwitchCancelRef.current) {
-      timeframeSwitchCancelRef.current.abort();
-    }
-    timeframeSwitchCancelRef.current = new AbortController();
-  }, [timeframe]);
 
   // Main replay playback loop
   useEffect(() => {
@@ -372,92 +376,20 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     };
   }, [replayActive, replayPlaying, replaySpeed, replayCandles, setReplayState, bumpOverlayRedraw]);
 
-  // Ensure replay has an absolute startEpoch when activated (do not reset existing playback)
+  // Ensure replay has an absolute startEpoch when activated
   useEffect(() => {
     if (!replayActive) return;
     const store = useChartStore.getState();
     const replay = store.replay || ({} as any);
-    // already set -> nothing to do
     if (typeof replay.startEpoch === 'number') return;
 
     const idx = typeof replay.index === 'number' ? replay.index : 0;
     const candles = Array.isArray(replay.candles) && replay.candles.length ? replay.candles : replayCandles;
     const t = candles?.[idx]?.time;
     if (t) {
-      setReplayState({ ...replay, startEpoch: Number(t) });
+      setReplayState({ startEpoch: Number(t) });
     }
   }, [replayActive, replayCandles, setReplayState]);
-
-  // On timeframe change while replayActive: fetch/map candles around the saved startEpoch and update store WITHOUT stopping playback
-  useEffect(() => {
-    if (!replayActive) return;
-    const store = useChartStore.getState();
-    const replay = store.replay || ({} as any);
-    const startEpoch =
-      typeof replay.startEpoch === 'number'
-        ? Number(replay.startEpoch)
-        : Array.isArray(replay.candles) && typeof replay.index === 'number'
-        ? Number(replay.candles[replay.index]?.time)
-        : undefined;
-
-    if (!startEpoch) return;
-
-    isTimeframeSwitchingRef.current = true;
-    let cancelled = false;
-    (async () => {
-      try {
-        const iso = new Date(startEpoch * 1000).toISOString();
-        const loaded = await loadReplayCandles(iso);
-        if (cancelled || !loaded || !loaded.length) return;
-
-        const sorted = [...loaded].map((c: any) => ({ ...c, time: Number(c.time) })).sort((a, b) => a.time - b.time);
-
-        const currentReplay = useChartStore.getState().replay as any;
-        const currentIdx = currentReplay.index || 0;
-        const currentCandle = currentReplay.candles?.[currentIdx];
-        
-        let mappedIdx = 0;
-        if (currentCandle) {
-          const foundIdx = sorted.findIndex(c => Number(c.time) === Number(currentCandle.time));
-          if (foundIdx >= 0) {
-            mappedIdx = foundIdx;
-          } else {
-            let lo = 0, hi = sorted.length - 1;
-            while (lo < hi) {
-              const mid = (lo + hi) >> 1;
-              if (sorted[mid].time < startEpoch) lo = mid + 1;
-              else hi = mid;
-            }
-            mappedIdx = lo === 0 ? 0 : Math.abs(sorted[lo - 1].time - startEpoch) <= Math.abs(sorted[lo].time - startEpoch) ? lo - 1 : lo;
-          }
-        }
-
-        setReplayState({
-          ...replay,
-          candles: sorted,
-          index: Math.max(0, Math.min(sorted.length - 1, mappedIdx)),
-        });
-
-        if (seriesRef.current) {
-          try {
-            seriesRef.current.setData(sorted.slice(0, Math.max(1, mappedIdx + 1)));
-            requestAnimationFrame(() => bumpOverlayRedraw());
-          } catch {
-            // ignore
-          }
-        }
-      } catch {
-        // ignore
-      } finally {
-        isTimeframeSwitchingRef.current = false;
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      isTimeframeSwitchingRef.current = false;
-    };
-  }, [timeframe, replayActive, loadReplayCandles, setReplayState, bumpOverlayRedraw]);
 
   useImperativeHandle(ref, () => ({
     getChart: () => chartRef.current,
