@@ -264,7 +264,12 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
         const iso = new Date(startEpoch * 1000).toISOString();
         const loaded = await loadReplayCandles(iso);
         
-        if (cancelled || signal?.aborted || !loaded || !loaded.length) {
+        if (cancelled || signal?.aborted) {
+          return;
+        }
+
+        // If no data available for this timeframe, keep current candles
+        if (!loaded || !loaded.length) {
           return;
         }
 
@@ -276,7 +281,8 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
         const currentIdx = currentReplay.index || 0;
         const currentCandle = currentReplay.candles?.[currentIdx];
         
-        let mappedIdx = 0;
+        let mappedIdx = Math.max(Math.floor(sorted.length * 0.5), 10); // Default: 50% through or 10 candles
+        
         if (currentCandle) {
           const foundIdx = sorted.findIndex(c => Number(c.time) === Number(currentCandle.time));
           if (foundIdx >= 0) {
@@ -300,7 +306,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
           if (seriesRef.current) {
             try {
-              seriesRef.current.setData(sorted.slice(0, Math.max(1, mappedIdx + 1)));
+              seriesRef.current.setData(sorted.slice(0, Math.max(50, mappedIdx + 1)));
               requestAnimationFrame(() => bumpOverlayRedraw());
             } catch {
               // ignore
@@ -317,7 +323,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     };
   }, [timeframe, replayActive, loadReplayCandles, setReplayState, bumpOverlayRedraw]);
 
-  // Main replay playback loop - read from store every cycle
+  // Main replay playback loop - DO NOT include replayPlaying to prevent restarts
   useEffect(() => {
     if (!replayActive || !seriesRef.current) return;
 
@@ -329,13 +335,13 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     if (!replay.candles.length) return;
 
     try {
-      seriesRef.current.setData(replay.candles.slice(0, replay.index + 1));
+      // Display at least 50 candles for proper zoom, or all loaded candles
+      const displayCount = Math.max(50, replay.index + 1);
+      seriesRef.current.setData(replay.candles.slice(0, displayCount));
       requestAnimationFrame(() => bumpOverlayRedraw());
     } catch {
       // ignore
     }
-
-    if (!replayPlaying) return;
 
     const interval = setInterval(() => {
       if (signal?.aborted) {
@@ -358,7 +364,8 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       }
 
       try {
-        seriesRef.current.setData(currentState.candles.slice(0, nextIndex + 1));
+        const displayCount = Math.max(50, nextIndex + 1);
+        seriesRef.current.setData(currentState.candles.slice(0, displayCount));
         requestAnimationFrame(() => bumpOverlayRedraw());
       } catch {
         // ignore
@@ -369,11 +376,8 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
     return () => {
       clearInterval(interval);
-      if (replayTimerRef.current === interval) {
-        replayTimerRef.current = null;
-      }
     };
-  }, [replayActive, replayPlaying, replaySpeed, setReplayState, bumpOverlayRedraw]);
+  }, [replayActive, setReplayState, bumpOverlayRedraw]); // REMOVED replayPlaying
 
   // Ensure replay has an absolute startEpoch when activated
   useEffect(() => {
