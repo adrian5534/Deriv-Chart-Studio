@@ -332,7 +332,8 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     const index = useChartStore.getState().replay.index;
 
     try {
-      seriesRef.current.setData(replayCandles.slice(0, Math.max(1, index + 1)));
+      // Set ALL candles up to current index, not just one
+      seriesRef.current.setData(replayCandles.slice(0, index + 1));
       requestAnimationFrame(() => bumpOverlayRedraw());
     } catch {
       // ignore
@@ -375,7 +376,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
         replayTimerRef.current = null;
       }
     };
-  }, [replayActive, replayPlaying, replaySpeed, replayCandles, setReplayState, bumpOverlayRedraw]);
+  }, [replayActive, replayPlaying, replaySpeed, setReplayState, bumpOverlayRedraw]); // REMOVED replayCandles
 
   // Ensure replay has an absolute startEpoch when activated
   useEffect(() => {

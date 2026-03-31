@@ -273,12 +273,20 @@ export const useChartStore = create<ChartState>((set) => ({
   clearAlerts: () => set({ alerts: [] }),
 
   setReplayState: (updates) =>
-    set((state) => ({
-      replay: {
+    set((state) => {
+      // Only trigger state change if something actually changed
+      const newReplay = {
         ...state.replay,
         ...updates,
-      },
-    })),
+      };
+      
+      // Shallow equality check to avoid unnecessary re-renders
+      if (JSON.stringify(state.replay) === JSON.stringify(newReplay)) {
+        return state;
+      }
+      
+      return { replay: newReplay };
+    }),
 
   stopReplay: () =>
     set((state) => ({
