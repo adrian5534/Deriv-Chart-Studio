@@ -317,23 +317,19 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     };
   }, [timeframe, replayActive, loadReplayCandles, setReplayState, bumpOverlayRedraw]);
 
-  // Main replay playback loop
+  // Main replay playback loop - read from store every cycle
   useEffect(() => {
-    if (replayTimerRef.current) {
-      clearInterval(replayTimerRef.current);
-      replayTimerRef.current = null;
-    }
-
-    if (!replayActive || !replayCandles.length || !seriesRef.current) return;
+    if (!replayActive || !seriesRef.current) return;
 
     const signal = timeframeSwitchCancelRef.current?.signal;
     if (signal?.aborted) return;
 
-    const index = useChartStore.getState().replay.index;
+    // Get initial state from store
+    const { replay } = useChartStore.getState();
+    if (!replay.candles.length) return;
 
     try {
-      // Set ALL candles up to current index, not just one
-      seriesRef.current.setData(replayCandles.slice(0, index + 1));
+      seriesRef.current.setData(replay.candles.slice(0, replay.index + 1));
       requestAnimationFrame(() => bumpOverlayRedraw());
     } catch {
       // ignore
@@ -341,27 +337,28 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
     if (!replayPlaying) return;
 
-    replayTimerRef.current = setInterval(() => {
+    const interval = setInterval(() => {
       if (signal?.aborted) {
-        clearInterval(replayTimerRef.current!);
-        replayTimerRef.current = null;
+        clearInterval(interval);
         return;
       }
 
-      const { replay } = useChartStore.getState();
-      if (!seriesRef.current || !replay.active) return;
+      const currentState = useChartStore.getState().replay;
+      if (!seriesRef.current || !currentState.active) {
+        clearInterval(interval);
+        return;
+      }
 
-      const nextIndex = replay.index + 1;
+      const nextIndex = currentState.index + 1;
 
-      if (nextIndex >= replay.candles.length) {
-        clearInterval(replayTimerRef.current!);
-        replayTimerRef.current = null;
+      if (nextIndex >= currentState.candles.length) {
+        clearInterval(interval);
         setReplayState({ playing: false });
         return;
       }
 
       try {
-        seriesRef.current.setData(replay.candles.slice(0, nextIndex + 1));
+        seriesRef.current.setData(currentState.candles.slice(0, nextIndex + 1));
         requestAnimationFrame(() => bumpOverlayRedraw());
       } catch {
         // ignore
@@ -371,12 +368,12 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     }, replaySpeed);
 
     return () => {
-      if (replayTimerRef.current) {
-        clearInterval(replayTimerRef.current);
+      clearInterval(interval);
+      if (replayTimerRef.current === interval) {
         replayTimerRef.current = null;
       }
     };
-  }, [replayActive, replayPlaying, replaySpeed, setReplayState, bumpOverlayRedraw]); // REMOVED replayCandles
+  }, [replayActive, replayPlaying, replaySpeed, setReplayState, bumpOverlayRedraw]);
 
   // Ensure replay has an absolute startEpoch when activated
   useEffect(() => {
