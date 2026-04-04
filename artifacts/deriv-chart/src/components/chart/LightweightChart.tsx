@@ -248,7 +248,6 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     const store = useChartStore.getState();
     const replay = store.replay || ({} as any);
     
-    // Use the CURRENT candle's time, not startEpoch
     const currentIdx = replay.index || 0;
     const currentCandle = replay.candles?.[currentIdx];
     const currentCandleTime = currentCandle?.time ? Number(currentCandle.time) : undefined;
@@ -260,6 +259,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
     (async () => {
       try {
+        // Load a range of candles around the current time (load more data to find alignment)
         const iso = new Date(currentCandleTime * 1000).toISOString();
         const loaded = await loadReplayCandles(iso);
         
@@ -267,7 +267,6 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
           return;
         }
 
-        // If no data available for this timeframe, keep current candles
         if (!loaded || !loaded.length) {
           return;
         }
@@ -276,22 +275,29 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
           .map((c: any) => ({ ...c, time: Number(c.time) }))
           .sort((a, b) => a.time - b.time);
 
-        // Find the candle in the new timeframe that contains/matches the current display time
+        // Find the candle that **opens at or before** the current time
         let mappedIdx = 0;
+        
+        // First, try exact match
         const foundIdx = sorted.findIndex(c => Number(c.time) === currentCandleTime);
         
         if (foundIdx >= 0) {
-          // Exact match found
           mappedIdx = foundIdx;
         } else {
-          // Find closest candle before currentCandleTime
-          let lo = 0, hi = sorted.length - 1;
-          while (lo < hi) {
-            const mid = (lo + hi + 1) >> 1;
-            if (sorted[mid].time <= currentCandleTime) lo = mid;
-            else hi = mid - 1;
+          // Find the candle whose opening time is closest to but NOT after currentCandleTime
+          // This handles timeframe misalignment (e.g., 1H candle at 13:00 → closest 4H candle that opened before 13:00)
+          let closestIdx = 0;
+          let closestDiff = Math.abs(sorted[0].time - currentCandleTime);
+          
+          for (let i = 0; i < sorted.length; i++) {
+            const candleTime = sorted[i].time;
+            // Prefer candles that opened before or at currentCandleTime
+            if (candleTime <= currentCandleTime) {
+              mappedIdx = i;
+            } else {
+              break;
+            }
           }
-          mappedIdx = lo;
         }
 
         if (!cancelled && !signal?.aborted) {
