@@ -321,7 +321,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
   // Update startEpoch whenever the current candle changes during replay
   useEffect(() => {
-    if (!replayActive) return;
+    if (!replayActive || !replayPlaying) return;
     const store = useChartStore.getState();
     const replay = store.replay || ({} as any);
     const currentIdx = replay.index || 0;
@@ -330,7 +330,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     if (currentCandle?.time && currentCandle.time !== replay.startEpoch) {
       setReplayState({ startEpoch: Number(currentCandle.time) });
     }
-  }, [replayActive, replayCandles, setReplayState]);
+  }, [replayActive, replayPlaying, replayCandles, setReplayState]);
 
   // Main replay playback loop - DO NOT include replayPlaying to prevent restarts
   useEffect(() => {
@@ -352,6 +352,9 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       // ignore
     }
 
+    // ONLY set up interval if actively playing
+    if (!replayPlaying) return;
+
     const interval = setInterval(() => {
       if (signal?.aborted) {
         clearInterval(interval);
@@ -359,7 +362,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       }
 
       const currentState = useChartStore.getState().replay;
-      if (!seriesRef.current || !currentState.active) {
+      if (!seriesRef.current || !currentState.active || !currentState.playing) {
         clearInterval(interval);
         return;
       }
@@ -386,7 +389,7 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     return () => {
       clearInterval(interval);
     };
-  }, [replayActive, setReplayState, bumpOverlayRedraw]); // REMOVED replayPlaying
+  }, [replayActive, replayPlaying, replaySpeed, setReplayState, bumpOverlayRedraw]);
 
   // Ensure replay has an absolute startEpoch when activated
   useEffect(() => {
