@@ -259,7 +259,6 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
     (async () => {
       try {
-        // Load a range of candles around the current time (load more data to find alignment)
         const iso = new Date(currentCandleTime * 1000).toISOString();
         const loaded = await loadReplayCandles(iso);
         
@@ -275,24 +274,14 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
           .map((c: any) => ({ ...c, time: Number(c.time) }))
           .sort((a, b) => a.time - b.time);
 
-        // Find the candle that **opens at or before** the current time
         let mappedIdx = 0;
-        
-        // First, try exact match
         const foundIdx = sorted.findIndex(c => Number(c.time) === currentCandleTime);
         
         if (foundIdx >= 0) {
           mappedIdx = foundIdx;
         } else {
-          // Find the candle whose opening time is closest to but NOT after currentCandleTime
-          // This handles timeframe misalignment (e.g., 1H candle at 13:00 → closest 4H candle that opened before 13:00)
-          let closestIdx = 0;
-          let closestDiff = Math.abs(sorted[0].time - currentCandleTime);
-          
           for (let i = 0; i < sorted.length; i++) {
-            const candleTime = sorted[i].time;
-            // Prefer candles that opened before or at currentCandleTime
-            if (candleTime <= currentCandleTime) {
+            if (sorted[i].time <= currentCandleTime) {
               mappedIdx = i;
             } else {
               break;
@@ -308,7 +297,9 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
           if (seriesRef.current) {
             try {
-              seriesRef.current.setData(sorted.slice(0, Math.max(50, mappedIdx + 1)));
+              // Display 10 historical candles
+              const historyCount = Math.max(10, mappedIdx + 1);
+              seriesRef.current.setData(sorted.slice(0, historyCount));
               requestAnimationFrame(() => bumpOverlayRedraw());
             } catch {
               // ignore
@@ -338,27 +329,25 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
     }
   }, [replayActive, replayPlaying, replayCandles, setReplayState]);
 
-  // Main replay playback loop - DO NOT include replayPlaying to prevent restarts
+  // Main replay playback loop
   useEffect(() => {
     if (!replayActive || !seriesRef.current) return;
 
     const signal = timeframeSwitchCancelRef.current?.signal;
     if (signal?.aborted) return;
 
-    // Get initial state from store
     const { replay } = useChartStore.getState();
     if (!replay.candles.length) return;
 
     try {
-      // Display at least 50 candles for proper zoom, or all loaded candles
-      const displayCount = Math.max(50, replay.index + 1);
-      seriesRef.current.setData(replay.candles.slice(0, displayCount));
+      // Display 10 historical candles
+      const historyCount = Math.max(10, replay.index + 1);
+      seriesRef.current.setData(replay.candles.slice(0, historyCount));
       requestAnimationFrame(() => bumpOverlayRedraw());
     } catch {
       // ignore
     }
 
-    // ONLY set up interval if actively playing
     if (!replayPlaying) return;
 
     const interval = setInterval(() => {
@@ -382,8 +371,8 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       }
 
       try {
-        const displayCount = Math.max(50, nextIndex + 1);
-        seriesRef.current.setData(currentState.candles.slice(0, displayCount));
+        const historyCount = Math.max(10, nextIndex + 1);
+        seriesRef.current.setData(currentState.candles.slice(0, historyCount));
         requestAnimationFrame(() => bumpOverlayRedraw());
       } catch {
         // ignore
