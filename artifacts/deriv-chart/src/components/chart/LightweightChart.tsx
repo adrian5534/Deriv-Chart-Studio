@@ -247,21 +247,20 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
 
     const store = useChartStore.getState();
     const replay = store.replay || ({} as any);
-    const startEpoch =
-      typeof replay.startEpoch === 'number'
-        ? Number(replay.startEpoch)
-        : Array.isArray(replay.candles) && typeof replay.index === 'number'
-        ? Number(replay.candles[replay.index]?.time)
-        : undefined;
+    
+    // Use the CURRENT candle's time, not startEpoch
+    const currentIdx = replay.index || 0;
+    const currentCandle = replay.candles?.[currentIdx];
+    const currentCandleTime = currentCandle?.time ? Number(currentCandle.time) : undefined;
 
-    if (!startEpoch) return;
+    if (!currentCandleTime) return;
 
     const signal = timeframeSwitchAbortRef.current?.signal;
     let cancelled = false;
 
     (async () => {
       try {
-        const iso = new Date(startEpoch * 1000).toISOString();
+        const iso = new Date(currentCandleTime * 1000).toISOString();
         const loaded = await loadReplayCandles(iso);
         
         if (cancelled || signal?.aborted) {
@@ -277,25 +276,22 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
           .map((c: any) => ({ ...c, time: Number(c.time) }))
           .sort((a, b) => a.time - b.time);
 
-        const currentReplay = useChartStore.getState().replay as any;
-        const currentIdx = currentReplay.index || 0;
-        const currentCandle = currentReplay.candles?.[currentIdx];
+        // Find the candle in the new timeframe that contains/matches the current display time
+        let mappedIdx = 0;
+        const foundIdx = sorted.findIndex(c => Number(c.time) === currentCandleTime);
         
-        let mappedIdx = Math.max(Math.floor(sorted.length * 0.5), 10); // Default: 50% through or 10 candles
-        
-        if (currentCandle) {
-          const foundIdx = sorted.findIndex(c => Number(c.time) === Number(currentCandle.time));
-          if (foundIdx >= 0) {
-            mappedIdx = foundIdx;
-          } else {
-            let lo = 0, hi = sorted.length - 1;
-            while (lo < hi) {
-              const mid = (lo + hi) >> 1;
-              if (sorted[mid].time < startEpoch) lo = mid + 1;
-              else hi = mid;
-            }
-            mappedIdx = lo === 0 ? 0 : Math.abs(sorted[lo - 1].time - startEpoch) <= Math.abs(sorted[lo].time - startEpoch) ? lo - 1 : lo;
+        if (foundIdx >= 0) {
+          // Exact match found
+          mappedIdx = foundIdx;
+        } else {
+          // Find closest candle before currentCandleTime
+          let lo = 0, hi = sorted.length - 1;
+          while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+            if (sorted[mid].time <= currentCandleTime) lo = mid;
+            else hi = mid - 1;
           }
+          mappedIdx = lo;
         }
 
         if (!cancelled && !signal?.aborted) {
@@ -322,6 +318,19 @@ const LightweightChart = forwardRef<ChartRef, Record<string, never>>((_, ref) =>
       cancelled = true;
     };
   }, [timeframe, replayActive, loadReplayCandles, setReplayState, bumpOverlayRedraw]);
+
+  // Update startEpoch whenever the current candle changes during replay
+  useEffect(() => {
+    if (!replayActive) return;
+    const store = useChartStore.getState();
+    const replay = store.replay || ({} as any);
+    const currentIdx = replay.index || 0;
+    const currentCandle = replay.candles?.[currentIdx];
+    
+    if (currentCandle?.time && currentCandle.time !== replay.startEpoch) {
+      setReplayState({ startEpoch: Number(currentCandle.time) });
+    }
+  }, [replayActive, replayCandles, setReplayState]);
 
   // Main replay playback loop - DO NOT include replayPlaying to prevent restarts
   useEffect(() => {
